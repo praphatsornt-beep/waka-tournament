@@ -505,7 +505,7 @@ def send_confirmation_email(
     qr_bytes = base64.b64decode(qr_b64) if qr_b64 else None
     qr_block = (
         '<div style="text-align:center;margin:20px 0">'
-        '<p style="color:#555;font-size:13px;margin-bottom:8px">แสดง QR นี้เพื่อเช็คอินวันงาน</p>'
+        '<p style="color:#555;font-size:13px;margin-bottom:8px">แสดง QR นี้ให้เจ้าหน้าที่สแกนเพื่อเช็คอินเข้างาน</p>'
         '<img src="cid:qrcode" width="160" height="160" style="border:1px solid #ddd;padding:4px"/>'
         '</div>'
     ) if qr_bytes else ""
