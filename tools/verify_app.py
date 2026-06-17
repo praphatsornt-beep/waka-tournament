@@ -373,7 +373,7 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
     for sim, seq, gname, match_name, txn in candidates:
         if seq in warn_matches or (txn["txn_id"] and txn["txn_id"] in used_txn_ids):
             continue
-        detail = f"ตรวจสอบชื่อ | ยอดตรง {txn['amount']:.0f}฿ | ธนาคาร: {txn['sender']} | บัญชี: {match_name}"
+        detail = f"ตรวจสอบชื่อ | ยอดตรง {txn['amount']:.0f}฿"
         warn_matches[seq] = (txn, "⚠️", detail)
         used_txn_ids.add(txn["txn_id"])
         txn_to_owner[txn["txn_id"]] = gname
