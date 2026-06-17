@@ -66,10 +66,11 @@ def generate_qr_b64(data: str) -> str | None:
 
 # ── Paths & constants ─────────────────────────────────────────────────────────
 
-SCOPES      = ["https://www.googleapis.com/auth/spreadsheets"]
-TOKEN_PATH  = Path("token.json")
-CREDS_PATH  = Path("credentials.json")
-CONFIG_PATH = Path("events_config.json")
+SCOPES           = ["https://www.googleapis.com/auth/spreadsheets"]
+TOKEN_PATH       = Path("token.json")
+CREDS_PATH       = Path("credentials.json")
+CONFIG_PATH      = Path("events_config.json")
+CONFIG_SHEET_TAB = "_config"
 
 COL_NAME = "ชื่อการแข่งขัน"
 COL_URL  = "ลิงค์ Form Responses"
@@ -106,16 +107,57 @@ DEFAULT_OUTPUT_URL = "https://docs.google.com/spreadsheets/d/1WSfd9sKHl2H5O7Ai1D
 
 # ── Config helpers ─────────────────────────────────────────────────────────────
 
-def load_config() -> dict:
+def _bootstrap_output_url() -> str:
+    """อ่าน output sheet URL จาก Secrets (cloud) หรือไฟล์ local — ใช้ bootstrap load_config"""
+    try:
+        url = st.secrets.get("OUTPUT_SHEET_URL", "") or ""
+        if url.strip():
+            return url.strip()
+    except Exception:
+        pass
     if CONFIG_PATH.exists():
-        with open(CONFIG_PATH, encoding="utf-8") as f:
-            return json.load(f)
-    return {"events": DEFAULT_EVENTS, "output_sheet_url": DEFAULT_OUTPUT_URL}
+        try:
+            return json.loads(CONFIG_PATH.read_text(encoding="utf-8")).get("output_sheet_url", "")
+        except Exception:
+            pass
+    return DEFAULT_OUTPUT_URL
 
-def save_config(events_records: list, output_url: str):
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump({"events": events_records, "output_sheet_url": output_url},
-                  f, ensure_ascii=False, indent=2)
+def load_config() -> dict:
+    """โหลด config จาก Google Sheet (_config tab) ก่อน ถ้าไม่ได้ค่อย fallback ไปไฟล์ local"""
+    bootstrap_url = _bootstrap_output_url()
+    if bootstrap_url:
+        try:
+            sid, _ = parse_sheet_url(bootstrap_url)
+            ws  = get_gc().open_by_key(sid).worksheet(CONFIG_SHEET_TAB)
+            raw = ws.cell(1, 1).value
+            if raw:
+                return json.loads(raw)
+        except Exception:
+            pass
+    if CONFIG_PATH.exists():
+        try:
+            return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {"events": DEFAULT_EVENTS, "output_sheet_url": bootstrap_url or DEFAULT_OUTPUT_URL}
+
+def save_config(events_records: list, output_url: str) -> str | None:
+    """บันทึก config ลงทั้ง local file และ Google Sheet (_config tab)
+    คืนค่า error message ถ้า Sheet save ล้มเหลว, None ถ้าสำเร็จทั้งคู่"""
+    data    = {"events": events_records, "output_sheet_url": output_url}
+    payload = json.dumps(data, ensure_ascii=False)
+    CONFIG_PATH.write_text(payload, encoding="utf-8")
+    try:
+        sid, _ = parse_sheet_url(output_url)
+        sht = get_gc().open_by_key(sid)
+        try:
+            ws = sht.worksheet(CONFIG_SHEET_TAB)
+        except gspread.WorksheetNotFound:
+            ws = sht.add_worksheet(title=CONFIG_SHEET_TAB, rows=5, cols=2)
+        ws.update_cell(1, 1, payload)
+        return None
+    except Exception as e:
+        return str(e)
 
 def parse_sheet_url(url: str) -> tuple[str, int | None]:
     """แปลง Google Sheets URL → (sheet_id, gid หรือ None)"""
@@ -627,9 +669,20 @@ with tab_settings:
         value=config.get("output_sheet_url", ""),
         placeholder="https://docs.google.com/spreadsheets/d/...",
     )
+    with st.expander("ℹ️ วิธีให้ config คงอยู่บน Streamlit Cloud"):
+        st.markdown(
+            "เพิ่ม Secret ชื่อ `OUTPUT_SHEET_URL` ใน Streamlit Cloud dashboard "
+            "(Settings → Secrets) แล้วใส่ URL ของ Output Sheet\n\n"
+            "```toml\nOUTPUT_SHEET_URL = \"https://docs.google.com/spreadsheets/d/...\"\n```\n\n"
+            "เมื่อตั้งค่าแล้ว กด 💾 บันทึกการตั้งค่า ครั้งเดียว — config จะถูกเก็บใน tab `_config` "
+            "ของ Sheet นั้น และโหลดขึ้นมาอัตโนมัติทุกครั้งแม้ deploy ใหม่"
+        )
     if st.button("💾 บันทึกการตั้งค่า"):
-        save_config(edited_df.to_dict("records"), output_url)
-        st.success("บันทึกแล้ว — การตั้งค่าจะถูกโหลดอัตโนมัติครั้งถัดไป")
+        err = save_config(edited_df.to_dict("records"), output_url)
+        if err:
+            st.warning(f"บันทึกลงไฟล์ local แล้ว แต่บันทึกลง Google Sheet ไม่ได้: {err}")
+        else:
+            st.success("✅ บันทึกแล้ว — config เก็บใน Google Sheet tab `_config` และไฟล์ local")
 
 # ─── Tab: ตรวจสลิป ───────────────────────────────────────────────────────────
 with tab_verify:
