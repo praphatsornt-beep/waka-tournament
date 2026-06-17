@@ -653,16 +653,17 @@ if "all_results" in st.session_state:
 
             # ── Editable section for ⚠️ rows ──────────────────────────────────
             warn_df = df.loc[df["สถานะ"] == "⚠️",
-                             ["#", "ชื่อที่ใช้แข่ง", "ชื่อบัญชีที่โอน", "รายละเอียด", "ตรวจสลิปแล้ว"]].copy()
+                             ["#", "ชื่อที่ใช้แข่ง", "ชื่อบัญชีที่โอน", "รายละเอียด", "ลิงค์สลิป", "ตรวจสลิปแล้ว"]].copy()
             if not warn_df.empty:
                 st.caption(f"⚠️ {len(warn_df)} แถวที่ต้องตรวจสลิปเพิ่มเติม — กรอกช่อง **'ตรวจสลิปแล้ว'** แล้วกด บันทึก")
                 edited_warn = st.data_editor(
                     warn_df,
                     key=f"warn_{ev_name}_{run_count}_{save_count}",
-                    disabled=["#", "ชื่อที่ใช้แข่ง", "ชื่อบัญชีที่โอน", "รายละเอียด"],
+                    disabled=["#", "ชื่อที่ใช้แข่ง", "ชื่อบัญชีที่โอน", "รายละเอียด", "ลิงค์สลิป"],
                     hide_index=True,
                     use_container_width=True,
                     column_config={
+                        "ลิงค์สลิป": st.column_config.LinkColumn("ลิงค์สลิป", display_text="เปิดสลิป"),
                         "ตรวจสลิปแล้ว": st.column_config.TextColumn(
                             "ตรวจสลิปแล้ว ✏️",
                             help="กรอกเพื่อยืนยัน เช่น ✅ หรือชื่อ admin",
