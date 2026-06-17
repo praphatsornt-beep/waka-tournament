@@ -49,6 +49,7 @@ FORM_COLUMN_KEYWORDS = {
 OUTPUT_HEADER = [
     "#", "ชื่อที่ใช้แข่ง", "ชื่อใน OpenChat", "ชื่อเฟสบุค", "ชื่อบัญชีที่โอน",
     "สถานะ", "รายละเอียด", "ยอดที่พบ", "ชื่อในธนาคาร", "เลขที่รายการ", "วันที่โอน", "ลิงค์สลิป",
+    "ตรวจสลิปแล้ว",  # admin กรอกเอง — ไม่โดนลบเมื่อรันใหม่
 ]
 
 # Pre-filled defaults (ใช้ครั้งแรก ถ้ายังไม่มี events_config.json)
@@ -316,6 +317,25 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
     header, data_rows = rows[0], rows[1:]
     cols = detect_columns(header, FORM_COLUMN_KEYWORDS)
 
+    # อ่านค่า "ตรวจสลิปแล้ว" ที่ admin กรอกไว้ก่อน clear
+    manual_ok = {}  # game_name → note
+    if output_sheet:
+        try:
+            ws_prev = output_sheet.worksheet(name)
+            prev    = ws_prev.get_all_values()
+            if len(prev) > 1:
+                hdr   = prev[0]
+                oc_i  = next((i for i, h in enumerate(hdr) if h == "ตรวจสลิปแล้ว"), None)
+                gn_i  = next((i for i, h in enumerate(hdr) if h == "ชื่อที่ใช้แข่ง"), 1)
+                if oc_i is not None:
+                    for r in prev[1:]:
+                        val = r[oc_i].strip() if oc_i < len(r) else ""
+                        gn  = r[gn_i]        if gn_i  < len(r) else ""
+                        if val and gn:
+                            manual_ok[gn] = val
+        except Exception:
+            pass
+
     parsed = []
     for seq, row in enumerate(data_rows, start=1):
         def cell(key, _row=row):
@@ -383,9 +403,15 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
                 status = "❌"
                 detail = f"ไม่พบในรายงานธนาคาร | บัญชี: {match_name} | คาดยอด {fees_str}฿"
 
+        # ถ้า admin ตรวจสลิปแล้ว → เปลี่ยนสถานะเป็น ✅
+        override = manual_ok.get(game_name, "")
+        if override and status == "⚠️":
+            status = "✅"
+            detail = f"ตรวจสลิปแล้ว | {detail}"
+
         display_name = (
             txn["sender"] if status in ("✅", "🚫") and txn
-            else (tr or fb)  # ⚠️ / ❌ — แสดงชื่อที่ลูกค้ากรอกมา
+            else (tr or fb)
         )
         results.append([
             seq, game_name, oc, fb, tr, status, detail,
@@ -394,6 +420,7 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
             txn["txn_id"] if txn else "",
             txn["date"]   if txn else "",
             slip,
+            override,
         ])
 
     # Write to Google Sheet (ถ้ามี)
@@ -406,6 +433,8 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
         ws.append_row(OUTPUT_HEADER)
         if results:
             ws.append_rows(results)
+            # ใส่สูตร dropdown ใน column ตรวจสลิปแล้ว (col M = 13)
+            # ไม่ต้องทำ — admin กรอกเองได้เลย
 
     confirmed = sum(1 for r in results if r[5] == "✅")
     warned    = sum(1 for r in results if r[5] == "⚠️")
