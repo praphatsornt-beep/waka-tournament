@@ -169,6 +169,43 @@ def load_bank_pdf(content_bytes: bytes) -> list[dict]:
         raise ValueError("ไม่พบ transactions ใน PDF — ตรวจสอบว่าเป็น PDF แบบ text ไม่ใช่รูปภาพ")
     return txns
 
+def _detect_cols_by_pattern(rows: list[list[str]]) -> dict[str, int] | None:
+    """ตรวจหา column โดยดูจากรูปแบบข้อมูล (T30-, วันที่, ตัวเลข, ชื่อธนาคาร)"""
+    BANK_NAMES = {"scb", "ktb", "kbank", "bbl", "tmb", "ttb", "bay", "gsb", "uob", "lhbank"}
+    txn_re  = re.compile(r"T30-\d{4}-\d{4}-\d{4}-\d+")
+    date_re = re.compile(r"\d{2}/\d{2}/\d{4}")
+
+    votes: dict[int, dict[str, int]] = {}
+    for row in rows[:30]:
+        for i, cell in enumerate(row):
+            c = cell.strip()
+            if txn_re.match(c):
+                votes.setdefault(i, {})["txn_id"] = votes[i].get("txn_id", 0) + 1
+            if date_re.match(c):
+                votes.setdefault(i, {})["date"] = votes[i].get("date", 0) + 1
+            if c.lower() in BANK_NAMES:
+                votes.setdefault(i, {})["bank"] = votes[i].get("bank", 0) + 1
+            try:
+                v = float(c.replace(",", ""))
+                if v > 0:
+                    votes.setdefault(i, {})["amount"] = votes[i].get("amount", 0) + 1
+            except ValueError:
+                pass
+
+    cols: dict[str, int] = {}
+    for typ in ("txn_id", "date", "amount", "bank"):
+        best = max((i for i in votes if typ in votes[i]),
+                   key=lambda i: votes[i].get(typ, 0), default=None)
+        if best is not None:
+            cols[typ] = best
+
+    # sender อยู่ถัดจาก txn_id
+    if "txn_id" in cols:
+        cols["sender"] = cols["txn_id"] + 1
+
+    return cols if len(cols) >= 3 else None
+
+
 def load_bank_csv(content_bytes: bytes) -> list[dict]:
     CSV_KWS = {
         "txn_id": ["เลขที่รายการ", "transaction", "ref no", "refno"],
@@ -180,17 +217,24 @@ def load_bank_csv(content_bytes: bytes) -> list[dict]:
     for enc in ("utf-8-sig", "utf-8", "cp874", "tis-620"):
         try:
             text = content_bytes.decode(enc)
+        except UnicodeDecodeError:
+            continue
+
+        for delimiter in ("|", ",", "\t"):
             try:
-                dialect = csv.Sniffer().sniff(text[:2000], delimiters="|,\t")
-            except csv.Error:
-                dialect = csv.excel
-            rows = list(csv.reader(io.StringIO(text), dialect))
+                rows = list(csv.reader(io.StringIO(text), delimiter=delimiter))
+            except Exception:
+                continue
+            if not rows or max(len(r) for r in rows[:5]) < 3:
+                continue
+
+            # ลอง keyword detection ก่อน
             header_idx, cols = None, {}
             for i, row in enumerate(rows):
                 rl = [c.lower().strip() for c in row]
                 hits = sum(1 for kws in CSV_KWS.values()
                            if any(kw in cell for kw in kws for cell in rl))
-                if hits >= 2:
+                if hits >= 1:
                     header_idx = i
                     for key, kws in CSV_KWS.items():
                         for j, cell in enumerate(rl):
@@ -198,8 +242,15 @@ def load_bank_csv(content_bytes: bytes) -> list[dict]:
                                 cols[key] = j
                                 break
                     break
+
+            # ถ้า keyword ไม่ได้ผล ใช้ pattern detection
+            if header_idx is None or len(cols) < 3:
+                cols = _detect_cols_by_pattern(rows) or {}
+                header_idx = 0 if cols else None
+
             if header_idx is None:
                 continue
+
             txns = []
             for row in rows[header_idx + 1:]:
                 if not row or not any(row):
@@ -217,9 +268,8 @@ def load_bank_csv(content_bytes: bytes) -> list[dict]:
                     txns.append(t)
             if txns:
                 return txns
-        except UnicodeDecodeError:
-            continue
-    raise ValueError("ไม่สามารถอ่าน CSV ได้")
+
+    raise ValueError("ไม่สามารถอ่าน CSV ได้ — ลองส่งออกใหม่จากแอป SCB แม่มณี")
 
 def find_matching_txn(transfer_name, facebook_name, expected_fees, bank_rows, used_txn_ids):
     if not isinstance(expected_fees, list):
