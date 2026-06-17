@@ -606,9 +606,23 @@ if run_clicked:
 
     progress_bar.progress(1.0, text="เสร็จสิ้น!")
 
+    # Store in session state so results persist across reruns
+    st.session_state["all_results"]      = all_results
+    st.session_state["summary_data"]     = summary
+    st.session_state["out_sheet_id_run"] = out_sheet_id
+    st.session_state["run_count"]        = st.session_state.get("run_count", 0) + 1
+    st.session_state["save_count"]       = 0
+
+# ── Display results (runs whenever session state has data) ────────────────────
+if "all_results" in st.session_state:
+    all_results  = st.session_state["all_results"]
+    out_sheet_id = st.session_state.get("out_sheet_id_run")
+    run_count    = st.session_state.get("run_count", 0)
+    save_count   = st.session_state.get("save_count", 0)
+
     # ── Summary ───────────────────────────────────────────────────────────────
     st.subheader("📊 สรุปผลทุกการแข่งขัน")
-    st.dataframe(pd.DataFrame(summary), hide_index=True, use_container_width=True)
+    st.dataframe(pd.DataFrame(st.session_state["summary_data"]), hide_index=True, use_container_width=True)
 
     if out_sheet_id:
         st.success(
@@ -622,14 +636,70 @@ if run_clicked:
         if not results:
             st.info(f"**{ev_name}** — ไม่มีข้อมูล")
             continue
+        df        = pd.DataFrame(results, columns=OUTPUT_HEADER)
         confirmed = sum(1 for r in results if r[5] == "✅")
+        warned    = (df["สถานะ"] == "⚠️").sum()
+
         with st.expander(
             f"**{ev_name}** — {confirmed}/{len(results)} ยืนยัน",
             expanded=True,
         ):
-            df = pd.DataFrame(results, columns=OUTPUT_HEADER)
+            # Full colored results (read-only)
             st.dataframe(
                 df.style.apply(style_row, axis=1),
                 use_container_width=True,
                 hide_index=True,
             )
+
+            # ── Editable section for ⚠️ rows ──────────────────────────────────
+            warn_df = df.loc[df["สถานะ"] == "⚠️",
+                             ["#", "ชื่อที่ใช้แข่ง", "ชื่อบัญชีที่โอน", "รายละเอียด", "ตรวจสลิปแล้ว"]].copy()
+            if not warn_df.empty:
+                st.caption(f"⚠️ {len(warn_df)} แถวที่ต้องตรวจสลิปเพิ่มเติม — กรอกช่อง **'ตรวจสลิปแล้ว'** แล้วกด บันทึก")
+                edited_warn = st.data_editor(
+                    warn_df,
+                    key=f"warn_{ev_name}_{run_count}_{save_count}",
+                    disabled=["#", "ชื่อที่ใช้แข่ง", "ชื่อบัญชีที่โอน", "รายละเอียด"],
+                    hide_index=True,
+                    use_container_width=True,
+                    column_config={
+                        "ตรวจสลิปแล้ว": st.column_config.TextColumn(
+                            "ตรวจสลิปแล้ว ✏️",
+                            help="กรอกเพื่อยืนยัน เช่น ✅ หรือชื่อ admin",
+                        ),
+                    },
+                )
+
+                if st.button(f"💾 บันทึกการตรวจสลิป — {ev_name}", key=f"save_{ev_name}_{run_count}_{save_count}"):
+                    updated_df = df.copy()
+                    for _, edit_row in edited_warn.iterrows():
+                        seq      = edit_row["#"]
+                        override = str(edit_row.get("ตรวจสลิปแล้ว", "")).strip()
+                        mask     = updated_df["#"] == seq
+                        if not mask.any():
+                            continue
+                        updated_df.loc[mask, "ตรวจสลิปแล้ว"] = override
+                        if override and updated_df.loc[mask, "สถานะ"].values[0] == "⚠️":
+                            updated_df.loc[mask, "สถานะ"]      = "✅"
+                            updated_df.loc[mask, "รายละเอียด"] = (
+                                "ตรวจสลิปแล้ว | " + updated_df.loc[mask, "รายละเอียด"].values[0]
+                            )
+
+                    updated_df = updated_df.fillna("")
+                    st.session_state["all_results"][ev_name] = updated_df.values.tolist()
+                    st.session_state["save_count"] = save_count + 1
+
+                    if out_sheet_id:
+                        try:
+                            _gc    = get_gc()
+                            _sheet = _gc.open_by_key(out_sheet_id)
+                            ws     = _sheet.worksheet(ev_name)
+                            ws.clear()
+                            ws.append_row(OUTPUT_HEADER)
+                            ws.append_rows(updated_df.values.tolist())
+                            st.success(f"✅ บันทึกแล้ว — {ev_name}")
+                        except Exception as e:
+                            st.error(f"บันทึกไม่ได้: {e}")
+                    else:
+                        st.success(f"✅ บันทึกในหน้านี้แล้ว — {ev_name}")
+                    st.rerun()
