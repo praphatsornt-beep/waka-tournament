@@ -1,0 +1,9 @@
+anthropic
+gspread
+google-auth-oauthlib
+google-api-python-client
+python-dotenv
+Pillow
+streamlit
+pdfplumber
+pandas
