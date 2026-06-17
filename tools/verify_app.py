@@ -704,3 +704,49 @@ if "all_results" in st.session_state:
                     else:
                         st.success(f"✅ บันทึกในหน้านี้แล้ว — {ev_name}")
                     st.rerun()
+
+            # ── Facebook post + Registration sheet ────────────────────────────
+            confirmed_df = df[df["สถานะ"] == "✅"].sort_values("#").reset_index(drop=True)
+            if not confirmed_df.empty:
+                st.divider()
+                col_fb, col_reg = st.columns([3, 1])
+
+                with col_fb:
+                    post_lines = [
+                        f"🎮 ประกาศรายชื่อผู้เข้าแข่งขัน {ev_name}",
+                        f"มีผู้ผ่านการยืนยัน {len(confirmed_df)} คน\n",
+                    ]
+                    for i, (_, row) in enumerate(confirmed_df.iterrows(), 1):
+                        post_lines.append(f"{i}. {row['ชื่อที่ใช้แข่ง']}")
+                    post_lines.append(f"\n#WAKA #{ev_name.replace(' ', '')}")
+                    st.text_area(
+                        "📢 โพสต์ Facebook (คัดลอกได้เลย):",
+                        value="\n".join(post_lines),
+                        height=280,
+                        key=f"fb_{ev_name}_{run_count}_{save_count}",
+                    )
+
+                with col_reg:
+                    st.write("**📋 ใบลงทะเบียน**")
+                    st.caption(f"{len(confirmed_df)} คน | เรียงตามลำดับสมัคร")
+                    if st.button("สร้างใน Google Sheet", key=f"reg_{ev_name}_{run_count}_{save_count}"):
+                        if out_sheet_id:
+                            try:
+                                _gc      = get_gc()
+                                _sheet   = _gc.open_by_key(out_sheet_id)
+                                ws_title = f"ลงทะเบียน — {ev_name}"
+                                try:
+                                    ws_reg = _sheet.worksheet(ws_title)
+                                    ws_reg.clear()
+                                except gspread.WorksheetNotFound:
+                                    ws_reg = _sheet.add_worksheet(title=ws_title, rows=200, cols=4)
+                                ws_reg.append_row(["ลำดับ", "ชื่อที่ใช้แข่ง", "เช็คอิน ✓", "หมายเหตุ"])
+                                ws_reg.append_rows([
+                                    [i, row["ชื่อที่ใช้แข่ง"], "", ""]
+                                    for i, (_, row) in enumerate(confirmed_df.iterrows(), 1)
+                                ])
+                                st.success(f"✅ สร้างแล้ว\ntab: '{ws_title}'")
+                            except Exception as e:
+                                st.error(f"สร้างไม่ได้: {e}")
+                        else:
+                            st.warning("ต้องระบุ Output Sheet URL ก่อน")
