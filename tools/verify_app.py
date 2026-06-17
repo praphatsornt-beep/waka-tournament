@@ -600,7 +600,7 @@ for col in [COL_NAME, COL_URL, COL_FEE, COL_DATE, COL_TIME, COL_VENUE]:
     if col not in events_df.columns:
         events_df[col] = ""
 
-tab_settings, tab_verify = st.tabs(["⚙️ ตั้งค่า", "🔍 ตรวจสลิป"])
+tab_settings, tab_verify, tab_list = st.tabs(["⚙️ ตั้งค่า", "🔍 ตรวจสลิป", "📋 รายชื่อ"])
 
 # ─── Tab: ตั้งค่า ─────────────────────────────────────────────────────────────
 with tab_settings:
@@ -808,9 +808,7 @@ with tab_verify:
                 expanded=True,
             ):
                 slip_label    = f"⚠️ ตรวจสลิป ({warned})" if warned else "⚠️ ตรวจสลิป"
-                tab_r, tab_s, tab_a, tab_e, tab_c = st.tabs(
-                    ["📊 ผลการตรวจ", slip_label, "📢 ประกาศ", "📧 อีเมล", "🎫 เช็คอิน"]
-                )
+                tab_r, tab_s = st.tabs(["📊 ผลการตรวจ", slip_label])
 
                 # ── Tab 1: ผลการตรวจ ──────────────────────────────────────────────
                 with tab_r:
@@ -875,7 +873,109 @@ with tab_verify:
                                 st.success("✅ บันทึกในหน้านี้แล้ว")
                             st.rerun()
 
-                # ── Tab 3: ประกาศ ─────────────────────────────────────────────────
+# ─── Tab: รายชื่อ ─────────────────────────────────────────────────────────────
+with tab_list:
+    _list_results = st.session_state.get("all_results")
+    _list_emails  = st.session_state.get("all_emails", {})
+    _out_id_list  = st.session_state.get("out_sheet_id_run")
+    _run_count    = st.session_state.get("run_count", 0)
+    _save_count   = st.session_state.get("save_count", 0)
+
+    # ── โหลดจาก Sheet (ถ้ายังไม่มีข้อมูลในหน่วยความจำ) ──────────────────────
+    if not _list_results:
+        if not output_url.strip():
+            st.info("ระบุ Output Sheet URL ในแท็บ ⚙️ ตั้งค่า แล้วกด 💾 บันทึกการตั้งค่า ก่อน")
+        else:
+            st.caption("ยังไม่มีข้อมูลในหน่วยความจำ — กดโหลดจาก Google Sheet ได้เลย")
+            if st.button("📋 โหลดรายชื่อจาก Sheet", type="primary"):
+                try:
+                    _gc  = get_gc()
+                    _oid, _ = parse_sheet_url(output_url)
+                    _sht = _gc.open_by_key(_oid)
+                    _loaded_results: dict = {}
+                    _loaded_emails:  dict = {}
+                    _loaded_summary: list = []
+                    for _, _erow in edited_df.iterrows():
+                        _en = str(_erow.get(COL_NAME, "")).strip()
+                        _eu = str(_erow.get(COL_URL,  "")).strip()
+                        if not _en:
+                            continue
+                        # ผลการตรวจที่บันทึกไว้
+                        try:
+                            _ws   = _sht.worksheet(_en)
+                            _rows = _ws.get_all_values()
+                            _loaded_results[_en] = _rows[1:] if len(_rows) > 1 else []
+                        except gspread.WorksheetNotFound:
+                            _loaded_results[_en] = []
+                        # อีเมลจาก Form sheet
+                        _em: dict[str, str] = {}
+                        if _eu:
+                            try:
+                                _sid, _gid = parse_sheet_url(_eu)
+                                _src = _gc.open_by_key(_sid)
+                                _sw  = _src.get_worksheet_by_id(_gid) if _gid is not None else _src.sheet1
+                                _sr  = _sw.get_all_values()
+                                if len(_sr) > 1:
+                                    _sc = detect_columns(_sr[0], FORM_COLUMN_KEYWORDS)
+                                    for _r in _sr[1:]:
+                                        def _cv(k, _row=_r, _cols=_sc):
+                                            _i = _cols.get(k)
+                                            return _row[_i].strip() if _i is not None and _i < len(_row) else ""
+                                        _gn = _cv("game_name") or _cv("openchat_name")
+                                        _ea = _cv("email")
+                                        if _gn and _ea:
+                                            _em[_gn] = _ea
+                            except Exception:
+                                pass
+                        _loaded_emails[_en] = _em
+                        # สรุป
+                        _d  = _loaded_results[_en]
+                        _ok = sum(1 for _r in _d if len(_r) > 5 and _r[5] == "✅")
+                        _wn = sum(1 for _r in _d if len(_r) > 5 and _r[5] == "⚠️")
+                        _dp = sum(1 for _r in _d if len(_r) > 5 and _r[5] == "🚫")
+                        _fl = sum(1 for _r in _d if len(_r) > 5 and _r[5] == "❌")
+                        _loaded_summary.append({
+                            "การแข่งขัน": _en,
+                            "✅ ยืนยัน": _ok, "⚠️ ตรวจสอบ": _wn,
+                            "🚫 ซ้ำ": _dp, "❌ ไม่พบ": _fl, "ทั้งหมด": len(_d),
+                        })
+                    st.session_state["all_results"]      = _loaded_results
+                    st.session_state["all_emails"]       = _loaded_emails
+                    st.session_state["summary_data"]     = _loaded_summary
+                    st.session_state["out_sheet_id_run"] = _oid
+                    st.session_state["events_meta"]      = {
+                        str(_r.get(COL_NAME, "")).strip(): {
+                            "date":  str(_r.get(COL_DATE,  "")).strip(),
+                            "time":  str(_r.get(COL_TIME,  "")).strip(),
+                            "venue": str(_r.get(COL_VENUE, "")).strip(),
+                        }
+                        for _, _r in edited_df.iterrows()
+                        if str(_r.get(COL_NAME, "")).strip()
+                    }
+                    st.session_state["run_count"]  = _run_count + 1
+                    st.session_state["save_count"] = 0
+                    st.rerun()
+                except Exception as _e:
+                    st.error(f"โหลดไม่ได้: {_e}")
+
+    # ── แสดงรายชื่อต่อเมื่อมีข้อมูล ──────────────────────────────────────────
+    if _list_results:
+        out_sheet_id = _out_id_list
+        run_count    = _run_count
+        save_count   = _save_count
+
+        for ev_name, results in _list_results.items():
+            if not results:
+                st.info(f"**{ev_name}** — ยังไม่มีข้อมูล")
+                continue
+            df           = pd.DataFrame(results, columns=OUTPUT_HEADER)
+            confirmed_df = df[df["สถานะ"] == "✅"].sort_values("#").reset_index(drop=True)
+            confirmed    = len(confirmed_df)
+
+            with st.expander(f"**{ev_name}** — {confirmed} คนยืนยัน", expanded=True):
+                tab_a, tab_e, tab_c = st.tabs(["📢 ประกาศ", "📧 อีเมล", "🎫 เช็คอิน"])
+
+                # ── ประกาศ ──────────────────────────────────────────────────────
                 with tab_a:
                     if confirmed_df.empty:
                         st.info("ยังไม่มีผู้ผ่านการยืนยัน")
@@ -920,12 +1020,12 @@ with tab_verify:
                                 else:
                                     st.warning("ต้องระบุ Output Sheet URL ก่อน")
 
-                # ── Tab 4: อีเมล ──────────────────────────────────────────────────
+                # ── อีเมล ────────────────────────────────────────────────────────
                 with tab_e:
                     if confirmed_df.empty:
                         st.info("ยังไม่มีผู้ผ่านการยืนยัน")
                     else:
-                        ev_emails = (st.session_state.get("all_emails") or {}).get(ev_name, {})
+                        ev_emails = (_list_emails or {}).get(ev_name, {})
                         sent_key  = f"sent_{ev_name}"
                         sent_set  = st.session_state.get(sent_key, set())
                         recipients = [
@@ -936,7 +1036,7 @@ with tab_verify:
                         has_emails = any(e for _, _, e in recipients)
 
                         if not has_emails:
-                            st.info("ไม่พบช่องอีเมลในฟอร์ม — เพิ่มคำถาม 'อีเมล' ในฟอร์มแล้วรันใหม่")
+                            st.info("ไม่พบอีเมล — ลอง 📋 โหลดรายชื่อจาก Sheet อีกครั้ง")
                         elif not GMAIL_ADDRESS or not GMAIL_APP_PWD:
                             st.warning(
                                 "ตั้งค่าใน `.env` (local) หรือ Streamlit Secrets (cloud) ก่อน:\n"
@@ -982,7 +1082,7 @@ with tab_verify:
                                 }
                                 for n, name, em in with_email
                             ])
-                            edited = st.data_editor(
+                            edited_r = st.data_editor(
                                 recipient_df,
                                 key=f"email_ed_{ev_name}_{run_count}_{save_count}_{check_all}",
                                 column_config={
@@ -998,7 +1098,7 @@ with tab_verify:
                             )
                             selected = [
                                 (int(row["#"]), row["ชื่อที่ใช้แข่ง"], row["อีเมล"])
-                                for _, row in edited.iterrows() if row["ส่ง"]
+                                for _, row in edited_r.iterrows() if row["ส่ง"]
                             ]
                             st.caption(f"เลือก **{len(selected)}** คน | ส่งแล้ว {already} คน")
                             if selected:
@@ -1022,7 +1122,7 @@ with tab_verify:
                                         st.success(f"✅ ส่งอีเมลครบ {len(selected)} คนแล้ว")
                                     st.rerun()
 
-                # ── Tab 5: เช็คอิน ────────────────────────────────────────────────
+                # ── เช็คอิน ──────────────────────────────────────────────────────
                 with tab_c:
                     if confirmed_df.empty:
                         st.info("ยังไม่มีผู้ผ่านการยืนยัน")
@@ -1031,7 +1131,6 @@ with tab_verify:
                         last_scan_key = f"last_scan_{ev_name}"
                         scan_msg_key  = f"scan_msg_{ev_name}"
 
-                        # โหลด check-in state จาก sheet ครั้งแรก
                         if ci_key not in st.session_state:
                             ci_state: dict[str, str] = {}
                             if out_sheet_id:
@@ -1056,7 +1155,6 @@ with tab_verify:
                         ci_state    = st.session_state[ci_key]
                         valid_names = set(confirmed_df["ชื่อที่ใช้แข่ง"].tolist())
 
-                        # ── QR Scanner ────────────────────────────────────────────
                         if HAS_SCANNER:
                             st.write("**📷 สแกน QR จากอีเมลผู้แข่ง**")
                             scanned = _qr_scanner(key=f"qr_{ev_name}_{run_count}")
@@ -1083,7 +1181,6 @@ with tab_verify:
                                 else:
                                     st.session_state[scan_msg_key] = ("error", "QR ไม่ถูกต้อง — ใช้ QR จากอีเมลยืนยันเท่านั้น")
 
-                            # แสดงผลการสแกนล่าสุด
                             if scan_msg_key in st.session_state:
                                 lvl, msg = st.session_state[scan_msg_key]
                                 if lvl == "success":
@@ -1097,7 +1194,6 @@ with tab_verify:
                         else:
                             st.info("ติดตั้ง `streamlit-qrcode-scanner` เพื่อใช้งาน QR scanner")
 
-                        # ── รายชื่อ + tick manual ─────────────────────────────────
                         all_ci_rows = [
                             {
                                 "เช็คอิน ✓":      bool(ci_state.get(row["ชื่อที่ใช้แข่ง"], "")),
@@ -1143,8 +1239,3 @@ with tab_verify:
                             else:
                                 st.success("✅ บันทึกในหน้านี้แล้ว")
                             st.rerun()
-
-    # ─── ส่วน 5: เช็คอิน วันงาน → ดูที่หน้า Check-in แยกต่างหาก ─────────────────
-
-    st.divider()
-    st.info("🎫 **เช็คอินวันงาน** — เปิดหน้า **Checkin** ในแถบซ้ายมือ (ไม่ต้องอัปโหลดไฟล์ธนาคาร)")
