@@ -113,7 +113,11 @@ def parse_fees(fee_str: str) -> list[float]:
 @st.cache_resource
 def get_gc():
     # บน Streamlit Cloud — อ่านจาก Secrets
-    if "GOOGLE_TOKEN" in st.secrets:
+    try:
+        has_token = "GOOGLE_TOKEN" in st.secrets
+    except Exception:
+        has_token = False
+    if has_token:
         token_data = json.loads(st.secrets["GOOGLE_TOKEN"])
         creds = Credentials(
             token=token_data.get("token"),
