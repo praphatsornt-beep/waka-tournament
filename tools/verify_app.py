@@ -475,7 +475,13 @@ bank_file = st.file_uploader(
     type=["pdf", "csv"],
 )
 
-run_clicked = st.button("🚀 เริ่มตรวจสอบ", type="primary", disabled=bank_file is None)
+# เก็บเนื้อหาไฟล์ใน session_state ป้องกัน reset หลังกดปุ่ม
+if bank_file is not None:
+    st.session_state["bank_content"] = bank_file.read()
+    st.session_state["bank_name"]    = bank_file.name
+
+has_file    = "bank_content" in st.session_state
+run_clicked = st.button("🚀 เริ่มตรวจสอบ", type="primary", disabled=not has_file)
 
 if run_clicked:
     # Parse events from editable table
@@ -503,9 +509,10 @@ if run_clicked:
 
     # Load bank file
     with st.spinner("กำลังอ่านไฟล์ธนาคาร..."):
-        content = bank_file.read()
+        content   = st.session_state["bank_content"]
+        bank_name = st.session_state["bank_name"]
         try:
-            if bank_file.name.lower().endswith(".pdf") or content[:4] == b"%PDF":
+            if bank_name.lower().endswith(".pdf") or content[:4] == b"%PDF":
                 bank_rows = load_bank_pdf(content)
             else:
                 bank_rows = load_bank_csv(content)
