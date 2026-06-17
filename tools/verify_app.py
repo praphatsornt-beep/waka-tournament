@@ -47,8 +47,9 @@ CONFIG_PATH = Path("events_config.json")
 COL_NAME = "ชื่อการแข่งขัน"
 COL_URL  = "ลิงค์ Form Responses"
 COL_FEE  = "ค่าสมัคร (฿)"
-COL_DATE = "วันแข่งขัน"
-COL_TIME = "เวลานัด"
+COL_DATE  = "วันแข่งขัน"
+COL_TIME  = "เวลานัด"
+COL_VENUE = "สถานที่"
 
 FORM_COLUMN_KEYWORDS = {
     "game_name":     ["in game name", "ingame", "แข่งในวงการ", "ชื่อแข่ง", "trainer id", "openchat"],
@@ -68,11 +69,11 @@ OUTPUT_HEADER = [
 
 # Pre-filled defaults (ใช้ครั้งแรก ถ้ายังไม่มี events_config.json)
 DEFAULT_EVENTS = [
-    {COL_NAME: "Lorcana",           COL_URL: "https://docs.google.com/spreadsheets/d/1vEzBdnQ1doPH3KLADSN9XbrC5tViZiGq1kLWET-6LeQ/edit#gid=118500649",  COL_FEE: "350",     COL_DATE: "", COL_TIME: ""},
-    {COL_NAME: "Riftbound",         COL_URL: "https://docs.google.com/spreadsheets/d/1EIqD91sJGBpwN0AeU9w8ior67elMIQS1vyY2mwShLZU/edit#gid=935532850",  COL_FEE: "500,900", COL_DATE: "", COL_TIME: ""},
-    {COL_NAME: "Pokemon Champions", COL_URL: "https://docs.google.com/spreadsheets/d/1HLZ_tM3WbCiPP6BtuHSKmBo2H5KkYizsh71lJ4_moJA/edit#gid=2026372639", COL_FEE: "200",     COL_DATE: "", COL_TIME: ""},
-    {COL_NAME: "Pokemon TCG",       COL_URL: "https://docs.google.com/spreadsheets/d/1eHQQ-8ANDJfMcUyVwtrtumfgrtnTaiZr--wzUFExMpE/edit#gid=759768958",  COL_FEE: "250",     COL_DATE: "", COL_TIME: ""},
-    {COL_NAME: "BOT",               COL_URL: "https://docs.google.com/spreadsheets/d/1K7AFCxOOPzw-kp0kzUf07d-96dCsKnHjkYbIemzxeDM/edit#gid=2054056416", COL_FEE: "250",     COL_DATE: "", COL_TIME: ""},
+    {COL_NAME: "Lorcana",           COL_URL: "https://docs.google.com/spreadsheets/d/1vEzBdnQ1doPH3KLADSN9XbrC5tViZiGq1kLWET-6LeQ/edit#gid=118500649",  COL_FEE: "350",     COL_DATE: "", COL_TIME: "", COL_VENUE: ""},
+    {COL_NAME: "Riftbound",         COL_URL: "https://docs.google.com/spreadsheets/d/1EIqD91sJGBpwN0AeU9w8ior67elMIQS1vyY2mwShLZU/edit#gid=935532850",  COL_FEE: "500,900", COL_DATE: "", COL_TIME: "", COL_VENUE: ""},
+    {COL_NAME: "Pokemon Champions", COL_URL: "https://docs.google.com/spreadsheets/d/1HLZ_tM3WbCiPP6BtuHSKmBo2H5KkYizsh71lJ4_moJA/edit#gid=2026372639", COL_FEE: "200",     COL_DATE: "", COL_TIME: "", COL_VENUE: ""},
+    {COL_NAME: "Pokemon TCG",       COL_URL: "https://docs.google.com/spreadsheets/d/1eHQQ-8ANDJfMcUyVwtrtumfgrtnTaiZr--wzUFExMpE/edit#gid=759768958",  COL_FEE: "250",     COL_DATE: "", COL_TIME: "", COL_VENUE: ""},
+    {COL_NAME: "BOT",               COL_URL: "https://docs.google.com/spreadsheets/d/1K7AFCxOOPzw-kp0kzUf07d-96dCsKnHjkYbIemzxeDM/edit#gid=2054056416", COL_FEE: "250",     COL_DATE: "", COL_TIME: "", COL_VENUE: ""},
 ]
 DEFAULT_OUTPUT_URL = "https://docs.google.com/spreadsheets/d/1WSfd9sKHl2H5O7Ai1DvqVaL7Tuwni-nfBc-hTX8HilA"
 
@@ -467,14 +468,15 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
 
 def send_confirmation_email(
     to_email: str, ev_name: str, game_name: str, order_num: int,
-    event_date: str = "", event_time: str = "",
+    event_date: str = "", event_time: str = "", event_venue: str = "",
 ) -> None:
     msg = MIMEMultipart("alternative")
     msg["Subject"] = f"[WAKA] ยืนยันการเข้าแข่งขัน {ev_name}"
     msg["From"]    = GMAIL_ADDRESS
     msg["To"]      = to_email
-    date_row = f'<tr><td style="padding:4px 20px 4px 0;color:#555">วันแข่งขัน</td><td><strong>{event_date}</strong></td></tr>' if event_date else ""
-    time_row = f'<tr><td style="padding:4px 20px 4px 0;color:#555">เวลานัด</td><td><strong>{event_time}</strong></td></tr>' if event_time else ""
+    date_row  = f'<tr><td style="padding:4px 20px 4px 0;color:#555">วันแข่งขัน</td><td><strong>{event_date}</strong></td></tr>'  if event_date  else ""
+    time_row  = f'<tr><td style="padding:4px 20px 4px 0;color:#555">เวลานัด</td><td><strong>{event_time}</strong></td></tr>'     if event_time  else ""
+    venue_row = f'<tr><td style="padding:4px 20px 4px 0;color:#555">สถานที่</td><td><strong>{event_venue}</strong></td></tr>'    if event_venue else ""
     body = f"""
 <div style="font-family:sans-serif;max-width:520px;padding:16px;color:#222">
   <h2 style="color:#1a73e8">🎮 ยืนยันการเข้าแข่งขัน {ev_name}</h2>
@@ -486,6 +488,7 @@ def send_confirmation_email(
     <tr><td style="padding:4px 20px 4px 0;color:#555">การแข่งขัน</td><td><strong>{ev_name}</strong></td></tr>
     {date_row}
     {time_row}
+    {venue_row}
   </table>
   <p>โปรดมาถึงสถานที่ก่อนเวลาแข่งขันครับ</p>
   <p style="margin-top:24px;color:#888;font-size:13px">— ทีม WAKA Tournament</p>
@@ -523,21 +526,22 @@ st.caption("เพิ่ม/แก้ไขแถว ได้เลย | ค่
 
 saved_events = config.get("events") or DEFAULT_EVENTS
 events_df = pd.DataFrame(saved_events)
-for col in [COL_NAME, COL_URL, COL_FEE, COL_DATE, COL_TIME]:
+for col in [COL_NAME, COL_URL, COL_FEE, COL_DATE, COL_TIME, COL_VENUE]:
     if col not in events_df.columns:
         events_df[col] = ""
 
 edited_df = st.data_editor(
-    events_df[[COL_NAME, COL_URL, COL_FEE, COL_DATE, COL_TIME]],
+    events_df[[COL_NAME, COL_URL, COL_FEE, COL_DATE, COL_TIME, COL_VENUE]],
     num_rows="dynamic",
     use_container_width=True,
     hide_index=True,
     column_config={
-        COL_NAME: st.column_config.TextColumn(COL_NAME, width="medium"),
-        COL_URL:  st.column_config.TextColumn(COL_URL,  width="large"),
-        COL_FEE:  st.column_config.TextColumn(COL_FEE,  width="small"),
-        COL_DATE: st.column_config.TextColumn(COL_DATE, width="small", help="เช่น 28 มิ.ย. 69"),
-        COL_TIME: st.column_config.TextColumn(COL_TIME, width="small", help="เช่น 10:00 น."),
+        COL_NAME:  st.column_config.TextColumn(COL_NAME,  width="medium"),
+        COL_URL:   st.column_config.TextColumn(COL_URL,   width="large"),
+        COL_FEE:   st.column_config.TextColumn(COL_FEE,   width="small"),
+        COL_DATE:  st.column_config.TextColumn(COL_DATE,  width="small", help="เช่น 28 มิ.ย. 69"),
+        COL_TIME:  st.column_config.TextColumn(COL_TIME,  width="small", help="เช่น 10:00 น."),
+        COL_VENUE: st.column_config.TextColumn(COL_VENUE, width="medium"),
     },
 )
 
@@ -671,8 +675,9 @@ if run_clicked:
     st.session_state["out_sheet_id_run"] = out_sheet_id
     st.session_state["events_meta"]      = {
         str(row.get(COL_NAME, "")).strip(): {
-            "date": str(row.get(COL_DATE, "")).strip(),
-            "time": str(row.get(COL_TIME, "")).strip(),
+            "date":  str(row.get(COL_DATE,  "")).strip(),
+            "time":  str(row.get(COL_TIME,  "")).strip(),
+            "venue": str(row.get(COL_VENUE, "")).strip(),
         }
         for _, row in edited_df.iterrows()
         if str(row.get(COL_NAME, "")).strip()
@@ -862,6 +867,11 @@ if "all_results" in st.session_state:
                             placeholder="เช่น 10:00 น.",
                             key=f"etime_{ev_name}_{run_count}",
                         )
+                        event_venue = st.text_input(
+                            "สถานที่", value=ev_meta.get("venue", ""),
+                            placeholder="เช่น ร้าน WAKA Game Shop",
+                            key=f"evenue_{ev_name}_{run_count}",
+                        )
                         st.divider()
                         with_email = [(n, name, em) for n, name, em in recipients if em]
                         already    = sum(1 for _, name, _ in with_email if name in sent_set)
@@ -908,7 +918,7 @@ if "all_results" in st.session_state:
                                 prog   = st.progress(0, text="กำลังส่ง...")
                                 for i, (n, name, em) in enumerate(selected):
                                     try:
-                                        send_confirmation_email(em, ev_name, name, n, event_date, event_time)
+                                        send_confirmation_email(em, ev_name, name, n, event_date, event_time, event_venue)
                                         sent_set.add(name)
                                     except Exception as e:
                                         errors.append(f"{name}: {e}")
