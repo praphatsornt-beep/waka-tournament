@@ -383,10 +383,14 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
                 status = "❌"
                 detail = f"ไม่พบในรายงานธนาคาร | บัญชี: {match_name} | คาดยอด {fees_str}฿"
 
+        display_name = (
+            txn["sender"] if status in ("✅", "🚫") and txn
+            else (tr or fb)  # ⚠️ / ❌ — แสดงชื่อที่ลูกค้ากรอกมา
+        )
         results.append([
             seq, game_name, oc, fb, tr, status, detail,
             f"{txn['amount']:.0f}" if txn else "",
-            txn["sender"] if txn else "",
+            display_name,
             txn["txn_id"] if txn else "",
             txn["date"]   if txn else "",
             slip,
