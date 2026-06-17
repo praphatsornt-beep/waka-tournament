@@ -7,13 +7,20 @@ WAKA Tournament — Payment Verification Web App
 import csv
 import io
 import json
+import os
 import re
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from pathlib import Path
 
 import streamlit as st
 from dotenv import load_dotenv
 
 load_dotenv()
+
+GMAIL_ADDRESS = os.getenv("GMAIL_ADDRESS", "")
+GMAIL_APP_PWD = os.getenv("GMAIL_APP_PASSWORD", "")
 
 try:
     import gspread
@@ -44,6 +51,7 @@ FORM_COLUMN_KEYWORDS = {
     "transfer_name": ["ชื่อบัญชี", "ชื่อที่โอน", "ชื่อโอน", "ใช้โอน", "ใช้ในการโอน",
                       "transfer name", "ชื่อเจ้าของบัญชี", "ชื่อที่ใช้"],
     "slip_url":      ["สลิป", "slip", "หลักฐาน", "การชำระ", "payment", "อัพโหลด"],
+    "email":         ["อีเมล", "email", "e-mail", "gmail", "mail"],
 }
 
 OUTPUT_HEADER = [
@@ -344,11 +352,11 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
         game_name = cell("game_name") or cell("openchat_name")
         if game_name:
             parsed.append((seq, game_name, cell("openchat_name"), cell("facebook"),
-                           cell("transfer_name"), cell("slip_url")))
+                           cell("transfer_name"), cell("slip_url"), cell("email")))
 
     # Pass 1: lock ✅ (ชื่อ + ยอดตรง)
     exact_matches, txn_to_owner = {}, {}
-    for seq, game_name, oc, fb, tr, slip in parsed:
+    for seq, game_name, oc, fb, tr, slip, email_addr in parsed:
         txn, status, detail = find_matching_txn(tr, fb, expected_fees, bank_rows, used_txn_ids)
         if status == "✅" and txn:
             used_txn_ids.add(txn["txn_id"])
@@ -357,7 +365,7 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
 
     # Pass 2: ⚠️ โดยเรียงความคล้ายชื่อ
     candidates = []
-    for seq, game_name, oc, fb, tr, slip in parsed:
+    for seq, game_name, oc, fb, tr, slip, email_addr in parsed:
         if seq in exact_matches:
             continue
         match_name = tr if tr else fb
@@ -380,7 +388,8 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
 
     # Compile
     results = []
-    for seq, game_name, oc, fb, tr, slip in parsed:
+    emails  = {}  # game_name → email address
+    for seq, game_name, oc, fb, tr, slip, email_addr in parsed:
         if seq in exact_matches:
             txn, status, detail = exact_matches[seq]
         elif seq in warn_matches:
@@ -413,6 +422,8 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
             txn["sender"] if status in ("✅", "🚫") and txn
             else (tr or fb)
         )
+        if email_addr:
+            emails[game_name] = email_addr
         results.append([
             seq, game_name, oc, fb, tr, status, detail,
             f"{txn['amount']:.0f}" if txn else "",
@@ -440,7 +451,33 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
     warned    = sum(1 for r in results if r[5] == "⚠️")
     duped     = sum(1 for r in results if r[5] == "🚫")
     failed    = len(results) - confirmed - warned - duped
-    return results, confirmed, warned, duped, failed
+    return results, confirmed, warned, duped, failed, emails
+
+# ── Email sending ─────────────────────────────────────────────────────────────
+
+def send_confirmation_email(to_email: str, ev_name: str, game_name: str, order_num: int) -> None:
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = f"[WAKA] ยืนยันการเข้าแข่งขัน {ev_name}"
+    msg["From"]    = GMAIL_ADDRESS
+    msg["To"]      = to_email
+    body = f"""
+<div style="font-family:sans-serif;max-width:520px;padding:16px;color:#222">
+  <h2 style="color:#1a73e8">🎮 ยืนยันการเข้าแข่งขัน {ev_name}</h2>
+  <p>สวัสดีคุณ <strong>{game_name}</strong>,</p>
+  <p>การสมัครแข่งขันของคุณได้รับการยืนยันเรียบร้อยแล้ว ✅</p>
+  <table style="border-collapse:collapse;margin:12px 0;font-size:15px">
+    <tr><td style="padding:4px 20px 4px 0;color:#555">ลำดับที่</td><td><strong>#{order_num}</strong></td></tr>
+    <tr><td style="padding:4px 20px 4px 0;color:#555">ชื่อที่ใช้แข่ง</td><td><strong>{game_name}</strong></td></tr>
+    <tr><td style="padding:4px 20px 4px 0;color:#555">การแข่งขัน</td><td><strong>{ev_name}</strong></td></tr>
+  </table>
+  <p>โปรดมาถึงสถานที่ก่อนเวลาแข่งขันครับ</p>
+  <p style="margin-top:24px;color:#888;font-size:13px">— ทีม WAKA Tournament</p>
+</div>
+"""
+    msg.attach(MIMEText(body, "html"))
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        server.login(GMAIL_ADDRESS, GMAIL_APP_PWD)
+        server.sendmail(GMAIL_ADDRESS, to_email, msg.as_string())
 
 # ── Row color styling ─────────────────────────────────────────────────────────
 
@@ -579,15 +616,17 @@ if run_clicked:
     used_txn_ids = set()
     summary      = []
     all_results  = {}
+    all_emails   = {}
     progress_bar = st.progress(0, text="กำลังประมวลผล...")
 
     for idx, event in enumerate(events):
         progress_bar.progress(idx / len(events), text=f"กำลังตรวจ {event['name']}...")
         try:
-            results, ok, warn, dup, fail = process_event(
+            results, ok, warn, dup, fail, emails = process_event(
                 event, gc, bank_rows, used_txn_ids, output_sheet
             )
             all_results[event["name"]] = results
+            all_emails[event["name"]]  = emails
             summary.append({
                 "การแข่งขัน":   event["name"],
                 "✅ ยืนยัน":    ok,
@@ -608,6 +647,7 @@ if run_clicked:
 
     # Store in session state so results persist across reruns
     st.session_state["all_results"]      = all_results
+    st.session_state["all_emails"]       = all_emails
     st.session_state["summary_data"]     = summary
     st.session_state["out_sheet_id_run"] = out_sheet_id
     st.session_state["run_count"]        = st.session_state.get("run_count", 0) + 1
@@ -750,3 +790,56 @@ if "all_results" in st.session_state:
                                 st.error(f"สร้างไม่ได้: {e}")
                         else:
                             st.warning("ต้องระบุ Output Sheet URL ก่อน")
+
+            # ── Email section ─────────────────────────────────────────────────
+            if not confirmed_df.empty:
+                st.divider()
+                st.write("**📧 ส่งอีเมลยืนยัน**")
+                ev_emails = (st.session_state.get("all_emails") or {}).get(ev_name, {})
+                sent_key  = f"sent_{ev_name}"
+                sent_set  = st.session_state.get(sent_key, set())
+
+                recipients = [
+                    (int(row["#"]), row["ชื่อที่ใช้แข่ง"],
+                     ev_emails.get(row["ชื่อที่ใช้แข่ง"], ""))
+                    for _, row in confirmed_df.iterrows()
+                ]
+                has_emails = any(e for _, _, e in recipients)
+
+                if not has_emails:
+                    st.caption("ไม่พบช่องอีเมลในฟอร์ม — เพิ่มคำถาม 'อีเมล' ในฟอร์มแล้วรันใหม่")
+                elif not GMAIL_ADDRESS or not GMAIL_APP_PWD:
+                    st.caption(
+                        "ตั้งค่าใน `.env` (local) หรือ Streamlit Secrets (cloud) ก่อน:\n"
+                        "```\nGMAIL_ADDRESS=xxx@gmail.com\nGMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx\n```"
+                    )
+                else:
+                    to_send = [(n, name, email) for n, name, email in recipients
+                               if email and name not in sent_set]
+                    already = len(recipients) - len(to_send)
+                    st.caption(f"จะส่ง **{len(to_send)}** คน | ส่งแล้ว {already} คน")
+
+                    if to_send:
+                        with st.expander("ดูรายชื่อที่จะส่ง"):
+                            for n, name, email in to_send:
+                                st.write(f"{n}. {name} → {email}")
+
+                        if st.button(
+                            f"📧 ส่งอีเมล {len(to_send)} คน",
+                            key=f"email_{ev_name}_{run_count}_{save_count}",
+                        ):
+                            errors = []
+                            prog   = st.progress(0, text="กำลังส่ง...")
+                            for i, (n, name, email) in enumerate(to_send):
+                                try:
+                                    send_confirmation_email(email, ev_name, name, n)
+                                    sent_set.add(name)
+                                except Exception as e:
+                                    errors.append(f"{name}: {e}")
+                                prog.progress((i + 1) / len(to_send), text=f"ส่งถึง {name}...")
+                            st.session_state[sent_key] = sent_set
+                            if errors:
+                                st.error("ส่งไม่ได้บางส่วน:\n" + "\n".join(errors))
+                            else:
+                                st.success(f"✅ ส่งอีเมลครบ {len(to_send)} คนแล้ว")
+                            st.rerun()
