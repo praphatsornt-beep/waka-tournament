@@ -11,6 +11,7 @@ import json
 import os
 import re
 import smtplib
+from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -496,21 +497,18 @@ def send_confirmation_email(
     to_email: str, ev_name: str, game_name: str, order_num: int,
     event_date: str = "", event_time: str = "", event_venue: str = "",
 ) -> None:
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"[WAKA] ยืนยันการเข้าแข่งขัน {ev_name}"
-    msg["From"]    = GMAIL_ADDRESS
-    msg["To"]      = to_email
     date_row  = f'<tr><td style="padding:4px 20px 4px 0;color:#555">วันแข่งขัน</td><td><strong>{event_date}</strong></td></tr>'  if event_date  else ""
     time_row  = f'<tr><td style="padding:4px 20px 4px 0;color:#555">เวลานัด</td><td><strong>{event_time}</strong></td></tr>'     if event_time  else ""
     venue_row = f'<tr><td style="padding:4px 20px 4px 0;color:#555">สถานที่</td><td><strong>{event_venue}</strong></td></tr>'    if event_venue else ""
-    qr_data   = f"WAKA|{ev_name}|{game_name}|{order_num}"
-    qr_b64    = generate_qr_b64(qr_data)
-    qr_block  = (
-        f'<div style="text-align:center;margin:20px 0">'
-        f'<p style="color:#555;font-size:13px;margin-bottom:8px">แสดง QR นี้เพื่อเช็คอินวันงาน</p>'
-        f'<img src="data:image/png;base64,{qr_b64}" width="160" height="160" style="border:1px solid #ddd;padding:4px"/>'
-        f'</div>'
-    ) if qr_b64 else ""
+    qr_data  = f"WAKA|{ev_name}|{game_name}|{order_num}"
+    qr_b64   = generate_qr_b64(qr_data)
+    qr_bytes = base64.b64decode(qr_b64) if qr_b64 else None
+    qr_block = (
+        '<div style="text-align:center;margin:20px 0">'
+        '<p style="color:#555;font-size:13px;margin-bottom:8px">แสดง QR นี้เพื่อเช็คอินวันงาน</p>'
+        '<img src="cid:qrcode" width="160" height="160" style="border:1px solid #ddd;padding:4px"/>'
+        '</div>'
+    ) if qr_bytes else ""
     body = f"""
 <div style="font-family:sans-serif;max-width:520px;padding:16px;color:#222">
   <h2 style="color:#1a73e8">🎮 ยืนยันการเข้าแข่งขัน {ev_name}</h2>
@@ -529,10 +527,20 @@ def send_confirmation_email(
   <p style="margin-top:24px;color:#888;font-size:13px">— ทีม WAKA Tournament</p>
 </div>
 """
-    msg.attach(MIMEText(body, "html"))
+    # ใช้ multipart/related เพื่อแนบรูป QR แบบ inline (email client ทุกตัวรองรับ)
+    outer = MIMEMultipart("related")
+    outer["Subject"] = f"[WAKA] ยืนยันการเข้าแข่งขัน {ev_name}"
+    outer["From"]    = GMAIL_ADDRESS
+    outer["To"]      = to_email
+    outer.attach(MIMEText(body, "html"))
+    if qr_bytes:
+        img_part = MIMEImage(qr_bytes, "png")
+        img_part.add_header("Content-ID", "<qrcode>")
+        img_part.add_header("Content-Disposition", "inline", filename="qrcode.png")
+        outer.attach(img_part)
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
         server.login(GMAIL_ADDRESS, GMAIL_APP_PWD)
-        server.sendmail(GMAIL_ADDRESS, to_email, msg.as_string())
+        server.sendmail(GMAIL_ADDRESS, to_email, outer.as_string())
 
 # ── Check-in sheet sync ───────────────────────────────────────────────────────
 
