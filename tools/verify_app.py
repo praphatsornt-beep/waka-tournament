@@ -1064,6 +1064,11 @@ with tab_list:
                                 placeholder="เช่น ร้าน WAKA Game Shop",
                                 key=f"evenue_{ev_name}_{run_count}",
                             )
+                            if st.button("💾 บันทึกรายละเอียด", key=f"emeta_save_{ev_name}_{run_count}"):
+                                _meta = st.session_state.get("events_meta") or {}
+                                _meta[ev_name] = {"date": event_date, "time": event_time, "venue": event_venue}
+                                st.session_state["events_meta"] = _meta
+                                st.success("✅ บันทึกรายละเอียดแล้ว")
                             st.divider()
                             with_email = [(n, name, em) for n, name, em in recipients if em]
                             already    = sum(1 for _, name, _ in with_email if name in sent_set)
