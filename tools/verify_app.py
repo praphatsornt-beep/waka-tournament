@@ -593,561 +593,558 @@ st.title("🎮 WAKA Tournament — ตรวจสอบการชำระเ
 
 config = load_config()
 
-# ─── ส่วน 1: ตารางการแข่งขัน ──────────────────────────────────────────────────
-
-st.subheader("📋 การแข่งขัน")
-st.caption("เพิ่ม/แก้ไขแถว ได้เลย | ค่าสมัครหลายค่าคั่นด้วยคอมมา เช่น `500,900`")
-
+# เตรียม DataFrame ก่อน tabs (ใช้ร่วมกันทั้งสอง tab)
 saved_events = config.get("events") or DEFAULT_EVENTS
-events_df = pd.DataFrame(saved_events)
+events_df    = pd.DataFrame(saved_events)
 for col in [COL_NAME, COL_URL, COL_FEE, COL_DATE, COL_TIME, COL_VENUE]:
     if col not in events_df.columns:
         events_df[col] = ""
 
-edited_df = st.data_editor(
-    events_df[[COL_NAME, COL_URL, COL_FEE, COL_DATE, COL_TIME, COL_VENUE]],
-    num_rows="dynamic",
-    use_container_width=True,
-    hide_index=True,
-    column_config={
-        COL_NAME:  st.column_config.TextColumn(COL_NAME,  width="medium"),
-        COL_URL:   st.column_config.TextColumn(COL_URL,   width="large"),
-        COL_FEE:   st.column_config.TextColumn(COL_FEE,   width="small"),
-        COL_DATE:  st.column_config.TextColumn(COL_DATE,  width="small", help="เช่น 28 มิ.ย. 69"),
-        COL_TIME:  st.column_config.TextColumn(COL_TIME,  width="small", help="เช่น 10:00 น."),
-        COL_VENUE: st.column_config.TextColumn(COL_VENUE, width="medium"),
-    },
-)
+tab_settings, tab_verify = st.tabs(["⚙️ ตั้งค่า", "🔍 ตรวจสลิป"])
 
-# ─── ส่วน 2: Output ───────────────────────────────────────────────────────────
+# ─── Tab: ตั้งค่า ─────────────────────────────────────────────────────────────
+with tab_settings:
+    st.subheader("📋 การแข่งขัน")
+    st.caption("เพิ่ม/แก้ไขแถว ได้เลย | ค่าสมัครหลายค่าคั่นด้วยคอมมา เช่น `500,900`")
+    edited_df = st.data_editor(
+        events_df[[COL_NAME, COL_URL, COL_FEE, COL_DATE, COL_TIME, COL_VENUE]],
+        num_rows="dynamic",
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            COL_NAME:  st.column_config.TextColumn(COL_NAME,  width="medium"),
+            COL_URL:   st.column_config.TextColumn(COL_URL,   width="large"),
+            COL_FEE:   st.column_config.TextColumn(COL_FEE,   width="small"),
+            COL_DATE:  st.column_config.TextColumn(COL_DATE,  width="small", help="เช่น 28 มิ.ย. 69"),
+            COL_TIME:  st.column_config.TextColumn(COL_TIME,  width="small", help="เช่น 10:00 น."),
+            COL_VENUE: st.column_config.TextColumn(COL_VENUE, width="medium"),
+        },
+    )
+    st.divider()
+    st.subheader("📤 Output Sheet")
+    output_url = st.text_input(
+        "Google Sheet URL สำหรับบันทึกผล (ไม่บังคับ — ถ้าว่างจะแสดงเฉพาะในหน้านี้)",
+        value=config.get("output_sheet_url", ""),
+        placeholder="https://docs.google.com/spreadsheets/d/...",
+    )
+    if st.button("💾 บันทึกการตั้งค่า"):
+        save_config(edited_df.to_dict("records"), output_url)
+        st.success("บันทึกแล้ว — การตั้งค่าจะถูกโหลดอัตโนมัติครั้งถัดไป")
 
-st.subheader("📤 Output")
-output_url = st.text_input(
-    "Google Sheet URL สำหรับบันทึกผล (ไม่บังคับ — ถ้าว่างจะแสดงเฉพาะในหน้านี้)",
-    value=config.get("output_sheet_url", ""),
-    placeholder="https://docs.google.com/spreadsheets/d/...",
-)
+# ─── Tab: ตรวจสลิป ───────────────────────────────────────────────────────────
+with tab_verify:
+    st.subheader("📁 ไฟล์รายงานธนาคาร")
+    bank_files = st.file_uploader(
+        "อัปโหลด PDF หรือ CSV จาก SCB แม่มณี (เลือกได้หลายไฟล์)",
+        type=["pdf", "csv"],
+        accept_multiple_files=True,
+    )
 
-if st.button("💾 บันทึกการตั้งค่า"):
-    save_config(edited_df.to_dict("records"), output_url)
-    st.success("บันทึกแล้ว — การตั้งค่าจะถูกโหลดอัตโนมัติครั้งถัดไป")
+    # เก็บเนื้อหาไฟล์ใน session_state ป้องกัน reset หลังกดปุ่ม
+    if bank_files:
+        st.session_state["bank_files"] = [(f.name, f.read()) for f in bank_files]
 
-st.divider()
+    has_file    = "bank_files" in st.session_state
+    run_clicked = st.button("🚀 เริ่มตรวจสอบ", type="primary", disabled=not has_file)
 
-# ─── ส่วน 3: ไฟล์ธนาคาร + รัน ────────────────────────────────────────────────
-
-st.subheader("📁 ไฟล์รายงานธนาคาร")
-bank_files = st.file_uploader(
-    "อัปโหลด PDF หรือ CSV จาก SCB แม่มณี (เลือกได้หลายไฟล์)",
-    type=["pdf", "csv"],
-    accept_multiple_files=True,
-)
-
-# เก็บเนื้อหาไฟล์ใน session_state ป้องกัน reset หลังกดปุ่ม
-if bank_files:
-    st.session_state["bank_files"] = [(f.name, f.read()) for f in bank_files]
-
-has_file    = "bank_files" in st.session_state
-run_clicked = st.button("🚀 เริ่มตรวจสอบ", type="primary", disabled=not has_file)
-
-if run_clicked:
-    # Parse events from editable table
-    events = []
-    for _, row in edited_df.iterrows():
-        name    = str(row.get(COL_NAME, "")).strip()
-        url     = str(row.get(COL_URL,  "")).strip()
-        fee_raw = str(row.get(COL_FEE,  "")).strip()
-        if not name or not url:
-            continue
-        try:
-            sheet_id, gid = parse_sheet_url(url)
-            fees          = parse_fees(fee_raw)
-        except ValueError as e:
-            st.warning(f"⚠️ ข้าม '{name}': {e}")
-            continue
-        ev = {"name": name, "source_sheet_id": sheet_id, "fee": fees}
-        if gid is not None:
-            ev["gid"] = gid
-        events.append(ev)
-
-    if not events:
-        st.error("ไม่มีการแข่งขันที่ตั้งค่าถูกต้อง — ตรวจสอบตารางด้านบน")
-        st.stop()
-
-    # Load bank files (รองรับหลายไฟล์)
-    if "bank_files" not in st.session_state or not st.session_state["bank_files"]:
-        st.error("กรุณาอัปโหลดไฟล์ธนาคารก่อน")
-        st.stop()
-    with st.spinner("กำลังอ่านไฟล์ธนาคาร..."):
-        bank_rows = []
-        seen_txn_ids: set[str] = set()
-        errors_load = []
-        for fname, content in st.session_state["bank_files"]:
+    if run_clicked:
+        # Parse events from editable table
+        events = []
+        for _, row in edited_df.iterrows():
+            name    = str(row.get(COL_NAME, "")).strip()
+            url     = str(row.get(COL_URL,  "")).strip()
+            fee_raw = str(row.get(COL_FEE,  "")).strip()
+            if not name or not url:
+                continue
             try:
-                if fname.lower().endswith(".pdf") or content[:4] == b"%PDF":
-                    rows = load_bank_pdf(content)
-                else:
-                    rows = load_bank_csv(content)
-                before = len(bank_rows)
-                for r in rows:
-                    tid = r.get("txn_id", "")
-                    if tid and tid in seen_txn_ids:
-                        continue  # ข้าม transaction ซ้ำระหว่างไฟล์
-                    if tid:
-                        seen_txn_ids.add(tid)
-                    bank_rows.append(r)
-                st.info(f"**{fname}** — {len(bank_rows) - before} transactions")
+                sheet_id, gid = parse_sheet_url(url)
+                fees          = parse_fees(fee_raw)
+            except ValueError as e:
+                st.warning(f"⚠️ ข้าม '{name}': {e}")
+                continue
+            ev = {"name": name, "source_sheet_id": sheet_id, "fee": fees}
+            if gid is not None:
+                ev["gid"] = gid
+            events.append(ev)
+
+        if not events:
+            st.error("ไม่มีการแข่งขันที่ตั้งค่าถูกต้อง — ตรวจสอบตารางด้านบน")
+            st.stop()
+
+        # Load bank files (รองรับหลายไฟล์)
+        if "bank_files" not in st.session_state or not st.session_state["bank_files"]:
+            st.error("กรุณาอัปโหลดไฟล์ธนาคารก่อน")
+            st.stop()
+        with st.spinner("กำลังอ่านไฟล์ธนาคาร..."):
+            bank_rows = []
+            seen_txn_ids: set[str] = set()
+            errors_load = []
+            for fname, content in st.session_state["bank_files"]:
+                try:
+                    if fname.lower().endswith(".pdf") or content[:4] == b"%PDF":
+                        rows = load_bank_pdf(content)
+                    else:
+                        rows = load_bank_csv(content)
+                    before = len(bank_rows)
+                    for r in rows:
+                        tid = r.get("txn_id", "")
+                        if tid and tid in seen_txn_ids:
+                            continue  # ข้าม transaction ซ้ำระหว่างไฟล์
+                        if tid:
+                            seen_txn_ids.add(tid)
+                        bank_rows.append(r)
+                    st.info(f"**{fname}** — {len(bank_rows) - before} transactions")
+                except Exception as e:
+                    errors_load.append(f"{fname}: {e}")
+            if errors_load:
+                st.error("อ่านไฟล์ไม่ได้:\n" + "\n".join(errors_load))
+            if not bank_rows:
+                st.stop()
+            st.success(f"รวมทั้งหมด **{len(bank_rows)} transactions** จาก {len(st.session_state['bank_files'])} ไฟล์")
+
+        # Connect Google Sheets
+        with st.spinner("กำลังเชื่อมต่อ Google Sheets..."):
+            try:
+                gc = get_gc()
+            except FileNotFoundError as e:
+                st.error(str(e))
+                st.stop()
             except Exception as e:
-                errors_load.append(f"{fname}: {e}")
-        if errors_load:
-            st.error("อ่านไฟล์ไม่ได้:\n" + "\n".join(errors_load))
-        if not bank_rows:
-            st.stop()
-        st.success(f"รวมทั้งหมด **{len(bank_rows)} transactions** จาก {len(st.session_state['bank_files'])} ไฟล์")
+                st.error(f"เชื่อมต่อ Google ไม่ได้: {e}")
+                st.stop()
 
-    # Connect Google Sheets
-    with st.spinner("กำลังเชื่อมต่อ Google Sheets..."):
-        try:
-            gc = get_gc()
-        except FileNotFoundError as e:
-            st.error(str(e))
-            st.stop()
-        except Exception as e:
-            st.error(f"เชื่อมต่อ Google ไม่ได้: {e}")
-            st.stop()
+        # Parse output sheet (optional)
+        output_sheet = None
+        out_sheet_id = None
+        if output_url.strip():
+            try:
+                out_sheet_id, _ = parse_sheet_url(output_url)
+                output_sheet     = gc.open_by_key(out_sheet_id)
+            except Exception as e:
+                st.warning(f"เปิด Output Sheet ไม่ได้: {e} — จะแสดงเฉพาะในหน้านี้")
 
-    # Parse output sheet (optional)
-    output_sheet = None
-    out_sheet_id = None
-    if output_url.strip():
-        try:
-            out_sheet_id, _ = parse_sheet_url(output_url)
-            output_sheet     = gc.open_by_key(out_sheet_id)
-        except Exception as e:
-            st.warning(f"เปิด Output Sheet ไม่ได้: {e} — จะแสดงเฉพาะในหน้านี้")
+        # Process all events
+        used_txn_ids = set()
+        summary      = []
+        all_results  = {}
+        all_emails   = {}
+        progress_bar = st.progress(0, text="กำลังประมวลผล...")
 
-    # Process all events
-    used_txn_ids = set()
-    summary      = []
-    all_results  = {}
-    all_emails   = {}
-    progress_bar = st.progress(0, text="กำลังประมวลผล...")
+        for idx, event in enumerate(events):
+            progress_bar.progress(idx / len(events), text=f"กำลังตรวจ {event['name']}...")
+            try:
+                results, ok, warn, dup, fail, emails = process_event(
+                    event, gc, bank_rows, used_txn_ids, output_sheet
+                )
+                all_results[event["name"]] = results
+                all_emails[event["name"]]  = emails
+                summary.append({
+                    "การแข่งขัน":   event["name"],
+                    "✅ ยืนยัน":    ok,
+                    "⚠️ ตรวจสอบ":  warn,
+                    "🚫 ซ้ำ":       dup,
+                    "❌ ไม่พบ":     fail,
+                    "ทั้งหมด":      len(results),
+                })
+            except Exception as e:
+                st.warning(f"**{event['name']}** เกิดข้อผิดพลาด: {e}")
+                summary.append({
+                    "การแข่งขัน": event["name"],
+                    "✅ ยืนยัน": "-", "⚠️ ตรวจสอบ": "-",
+                    "🚫 ซ้ำ": "-", "❌ ไม่พบ": "-", "ทั้งหมด": "-",
+                })
 
-    for idx, event in enumerate(events):
-        progress_bar.progress(idx / len(events), text=f"กำลังตรวจ {event['name']}...")
-        try:
-            results, ok, warn, dup, fail, emails = process_event(
-                event, gc, bank_rows, used_txn_ids, output_sheet
-            )
-            all_results[event["name"]] = results
-            all_emails[event["name"]]  = emails
-            summary.append({
-                "การแข่งขัน":   event["name"],
-                "✅ ยืนยัน":    ok,
-                "⚠️ ตรวจสอบ":  warn,
-                "🚫 ซ้ำ":       dup,
-                "❌ ไม่พบ":     fail,
-                "ทั้งหมด":      len(results),
-            })
-        except Exception as e:
-            st.warning(f"**{event['name']}** เกิดข้อผิดพลาด: {e}")
-            summary.append({
-                "การแข่งขัน": event["name"],
-                "✅ ยืนยัน": "-", "⚠️ ตรวจสอบ": "-",
-                "🚫 ซ้ำ": "-", "❌ ไม่พบ": "-", "ทั้งหมด": "-",
-            })
+        progress_bar.progress(1.0, text="เสร็จสิ้น!")
 
-    progress_bar.progress(1.0, text="เสร็จสิ้น!")
-
-    # Store in session state so results persist across reruns
-    st.session_state["all_results"]      = all_results
-    st.session_state["all_emails"]       = all_emails
-    st.session_state["summary_data"]     = summary
-    st.session_state["out_sheet_id_run"] = out_sheet_id
-    st.session_state["events_meta"]      = {
-        str(row.get(COL_NAME, "")).strip(): {
-            "date":  str(row.get(COL_DATE,  "")).strip(),
-            "time":  str(row.get(COL_TIME,  "")).strip(),
-            "venue": str(row.get(COL_VENUE, "")).strip(),
+        # Store in session state so results persist across reruns
+        st.session_state["all_results"]      = all_results
+        st.session_state["all_emails"]       = all_emails
+        st.session_state["summary_data"]     = summary
+        st.session_state["out_sheet_id_run"] = out_sheet_id
+        st.session_state["events_meta"]      = {
+            str(row.get(COL_NAME, "")).strip(): {
+                "date":  str(row.get(COL_DATE,  "")).strip(),
+                "time":  str(row.get(COL_TIME,  "")).strip(),
+                "venue": str(row.get(COL_VENUE, "")).strip(),
+            }
+            for _, row in edited_df.iterrows()
+            if str(row.get(COL_NAME, "")).strip()
         }
-        for _, row in edited_df.iterrows()
-        if str(row.get(COL_NAME, "")).strip()
-    }
-    st.session_state["run_count"]        = st.session_state.get("run_count", 0) + 1
-    st.session_state["save_count"]       = 0
+        st.session_state["run_count"]        = st.session_state.get("run_count", 0) + 1
+        st.session_state["save_count"]       = 0
 
-# ── Display results (runs whenever session state has data) ────────────────────
-if "all_results" in st.session_state:
-    all_results  = st.session_state["all_results"]
-    out_sheet_id = st.session_state.get("out_sheet_id_run")
-    run_count    = st.session_state.get("run_count", 0)
-    save_count   = st.session_state.get("save_count", 0)
+    # ── Display results (runs whenever session state has data) ────────────────────
+    if "all_results" in st.session_state:
+        all_results  = st.session_state["all_results"]
+        out_sheet_id = st.session_state.get("out_sheet_id_run")
+        run_count    = st.session_state.get("run_count", 0)
+        save_count   = st.session_state.get("save_count", 0)
 
-    # ── Summary ───────────────────────────────────────────────────────────────
-    st.subheader("📊 สรุปผลทุกการแข่งขัน")
-    st.dataframe(pd.DataFrame(st.session_state["summary_data"]), hide_index=True, use_container_width=True)
+        # ── Summary ───────────────────────────────────────────────────────────────
+        st.subheader("📊 สรุปผลทุกการแข่งขัน")
+        st.dataframe(pd.DataFrame(st.session_state["summary_data"]), hide_index=True, use_container_width=True)
 
-    if out_sheet_id:
-        st.success(
-            f"✅ บันทึกผลไปที่ "
-            f"[Google Sheet](https://docs.google.com/spreadsheets/d/{out_sheet_id}) แล้ว"
-        )
-
-    # ── Detailed results per event ─────────────────────────────────────────────
-    st.subheader("📋 รายละเอียดแต่ละการแข่งขัน")
-    for ev_name, results in all_results.items():
-        if not results:
-            st.info(f"**{ev_name}** — ไม่มีข้อมูล")
-            continue
-        df        = pd.DataFrame(results, columns=OUTPUT_HEADER)
-        confirmed = sum(1 for r in results if r[5] == "✅")
-        warned    = (df["สถานะ"] == "⚠️").sum()
-
-        confirmed_df = df[df["สถานะ"] == "✅"].sort_values("#").reset_index(drop=True)
-
-        with st.expander(
-            f"**{ev_name}** — {confirmed}/{len(results)} ยืนยัน"
-            + (f" | ⚠️ {warned}" if warned else ""),
-            expanded=True,
-        ):
-            slip_label    = f"⚠️ ตรวจสลิป ({warned})" if warned else "⚠️ ตรวจสลิป"
-            tab_r, tab_s, tab_a, tab_e, tab_c = st.tabs(
-                ["📊 ผลการตรวจ", slip_label, "📢 ประกาศ", "📧 อีเมล", "🎫 เช็คอิน"]
+        if out_sheet_id:
+            st.success(
+                f"✅ บันทึกผลไปที่ "
+                f"[Google Sheet](https://docs.google.com/spreadsheets/d/{out_sheet_id}) แล้ว"
             )
 
-            # ── Tab 1: ผลการตรวจ ──────────────────────────────────────────────
-            with tab_r:
-                st.dataframe(
-                    df.style.apply(style_row, axis=1),
-                    use_container_width=True,
-                    hide_index=True,
+        # ── Detailed results per event ─────────────────────────────────────────────
+        st.subheader("📋 รายละเอียดแต่ละการแข่งขัน")
+        for ev_name, results in all_results.items():
+            if not results:
+                st.info(f"**{ev_name}** — ไม่มีข้อมูล")
+                continue
+            df        = pd.DataFrame(results, columns=OUTPUT_HEADER)
+            confirmed = sum(1 for r in results if r[5] == "✅")
+            warned    = (df["สถานะ"] == "⚠️").sum()
+
+            confirmed_df = df[df["สถานะ"] == "✅"].sort_values("#").reset_index(drop=True)
+
+            with st.expander(
+                f"**{ev_name}** — {confirmed}/{len(results)} ยืนยัน"
+                + (f" | ⚠️ {warned}" if warned else ""),
+                expanded=True,
+            ):
+                slip_label    = f"⚠️ ตรวจสลิป ({warned})" if warned else "⚠️ ตรวจสลิป"
+                tab_r, tab_s, tab_a, tab_e, tab_c = st.tabs(
+                    ["📊 ผลการตรวจ", slip_label, "📢 ประกาศ", "📧 อีเมล", "🎫 เช็คอิน"]
                 )
 
-            # ── Tab 2: ตรวจสลิป ───────────────────────────────────────────────
-            with tab_s:
-                warn_df = df.loc[df["สถานะ"] == "⚠️",
-                                 ["#", "ชื่อที่ใช้แข่ง", "ชื่อบัญชีที่โอน", "รายละเอียด",
-                                  "ลิงค์สลิป", "ตรวจสลิปแล้ว"]].copy()
-                if warn_df.empty:
-                    st.success("ไม่มีแถวที่ต้องตรวจสลิปเพิ่มเติม")
-                else:
-                    st.caption(f"{len(warn_df)} แถว — กรอกช่อง **'ตรวจสลิปแล้ว'** แล้วกด บันทึก")
-                    edited_warn = st.data_editor(
-                        warn_df,
-                        key=f"warn_{ev_name}_{run_count}_{save_count}",
-                        disabled=["#", "ชื่อที่ใช้แข่ง", "ชื่อบัญชีที่โอน", "รายละเอียด", "ลิงค์สลิป"],
-                        hide_index=True,
+                # ── Tab 1: ผลการตรวจ ──────────────────────────────────────────────
+                with tab_r:
+                    st.dataframe(
+                        df.style.apply(style_row, axis=1),
                         use_container_width=True,
-                        column_config={
-                            "ลิงค์สลิป": st.column_config.LinkColumn("ลิงค์สลิป", display_text="เปิดสลิป"),
-                            "ตรวจสลิปแล้ว": st.column_config.TextColumn(
-                                "ตรวจสลิปแล้ว ✏️",
-                                help="กรอกเพื่อยืนยัน เช่น ✅ หรือชื่อ admin",
-                            ),
-                        },
+                        hide_index=True,
                     )
-                    if st.button("💾 บันทึก", key=f"save_{ev_name}_{run_count}_{save_count}"):
-                        updated_df = df.copy()
-                        for _, edit_row in edited_warn.iterrows():
-                            seq      = edit_row["#"]
-                            override = str(edit_row.get("ตรวจสลิปแล้ว", "")).strip()
-                            mask     = updated_df["#"] == seq
-                            if not mask.any():
-                                continue
-                            updated_df.loc[mask, "ตรวจสลิปแล้ว"] = override
-                            if override and updated_df.loc[mask, "สถานะ"].values[0] == "⚠️":
-                                updated_df.loc[mask, "สถานะ"]      = "✅"
-                                updated_df.loc[mask, "รายละเอียด"] = (
-                                    "ตรวจสลิปแล้ว | " + updated_df.loc[mask, "รายละเอียด"].values[0]
-                                )
-                        updated_df = updated_df.fillna("")
-                        st.session_state["all_results"][ev_name] = updated_df.values.tolist()
-                        st.session_state["save_count"] = save_count + 1
-                        if out_sheet_id:
-                            try:
-                                _gc    = get_gc()
-                                _sheet = _gc.open_by_key(out_sheet_id)
-                                ws     = _sheet.worksheet(ev_name)
-                                ws.clear()
-                                ws.append_row(OUTPUT_HEADER)
-                                ws.append_rows(updated_df.values.tolist())
-                                st.success("✅ บันทึกแล้ว")
-                            except Exception as e:
-                                st.error(f"บันทึกไม่ได้: {e}")
-                        else:
-                            st.success("✅ บันทึกในหน้านี้แล้ว")
-                        st.rerun()
 
-            # ── Tab 3: ประกาศ ─────────────────────────────────────────────────
-            with tab_a:
-                if confirmed_df.empty:
-                    st.info("ยังไม่มีผู้ผ่านการยืนยัน")
-                else:
-                    col_fb, col_reg = st.columns([3, 1])
-                    with col_fb:
-                        post_lines = [
-                            f"🎮 ประกาศรายชื่อผู้เข้าแข่งขัน {ev_name}",
-                            f"มีผู้ผ่านการยืนยัน {len(confirmed_df)} คน\n",
-                        ]
-                        for i, (_, row) in enumerate(confirmed_df.iterrows(), 1):
-                            post_lines.append(f"{i}. {row['ชื่อที่ใช้แข่ง']}")
-                        post_lines.append(f"\n#WAKA #{ev_name.replace(' ', '')}")
-                        st.text_area(
-                            "📢 โพสต์ Facebook (คัดลอกได้เลย):",
-                            value="\n".join(post_lines),
-                            height=280,
-                            key=f"fb_{ev_name}_{run_count}_{save_count}",
+                # ── Tab 2: ตรวจสลิป ───────────────────────────────────────────────
+                with tab_s:
+                    warn_df = df.loc[df["สถานะ"] == "⚠️",
+                                     ["#", "ชื่อที่ใช้แข่ง", "ชื่อบัญชีที่โอน", "รายละเอียด",
+                                      "ลิงค์สลิป", "ตรวจสลิปแล้ว"]].copy()
+                    if warn_df.empty:
+                        st.success("ไม่มีแถวที่ต้องตรวจสลิปเพิ่มเติม")
+                    else:
+                        st.caption(f"{len(warn_df)} แถว — กรอกช่อง **'ตรวจสลิปแล้ว'** แล้วกด บันทึก")
+                        edited_warn = st.data_editor(
+                            warn_df,
+                            key=f"warn_{ev_name}_{run_count}_{save_count}",
+                            disabled=["#", "ชื่อที่ใช้แข่ง", "ชื่อบัญชีที่โอน", "รายละเอียด", "ลิงค์สลิป"],
+                            hide_index=True,
+                            use_container_width=True,
+                            column_config={
+                                "ลิงค์สลิป": st.column_config.LinkColumn("ลิงค์สลิป", display_text="เปิดสลิป"),
+                                "ตรวจสลิปแล้ว": st.column_config.TextColumn(
+                                    "ตรวจสลิปแล้ว ✏️",
+                                    help="กรอกเพื่อยืนยัน เช่น ✅ หรือชื่อ admin",
+                                ),
+                            },
                         )
-                    with col_reg:
-                        st.write("**📋 ใบลงทะเบียน**")
-                        st.caption(f"{len(confirmed_df)} คน | เรียงตามลำดับสมัคร")
-                        if st.button("สร้างใน Google Sheet", key=f"reg_{ev_name}_{run_count}_{save_count}"):
+                        if st.button("💾 บันทึก", key=f"save_{ev_name}_{run_count}_{save_count}"):
+                            updated_df = df.copy()
+                            for _, edit_row in edited_warn.iterrows():
+                                seq      = edit_row["#"]
+                                override = str(edit_row.get("ตรวจสลิปแล้ว", "")).strip()
+                                mask     = updated_df["#"] == seq
+                                if not mask.any():
+                                    continue
+                                updated_df.loc[mask, "ตรวจสลิปแล้ว"] = override
+                                if override and updated_df.loc[mask, "สถานะ"].values[0] == "⚠️":
+                                    updated_df.loc[mask, "สถานะ"]      = "✅"
+                                    updated_df.loc[mask, "รายละเอียด"] = (
+                                        "ตรวจสลิปแล้ว | " + updated_df.loc[mask, "รายละเอียด"].values[0]
+                                    )
+                            updated_df = updated_df.fillna("")
+                            st.session_state["all_results"][ev_name] = updated_df.values.tolist()
+                            st.session_state["save_count"] = save_count + 1
                             if out_sheet_id:
                                 try:
-                                    _gc      = get_gc()
-                                    _sheet   = _gc.open_by_key(out_sheet_id)
-                                    ws_title = f"ลงทะเบียน — {ev_name}"
-                                    try:
-                                        ws_reg = _sheet.worksheet(ws_title)
-                                        ws_reg.clear()
-                                    except gspread.WorksheetNotFound:
-                                        ws_reg = _sheet.add_worksheet(title=ws_title, rows=200, cols=4)
-                                    ws_reg.append_row(["ลำดับ", "ชื่อที่ใช้แข่ง", "เช็คอิน ✓", "หมายเหตุ"])
-                                    ws_reg.append_rows([
-                                        [i, row["ชื่อที่ใช้แข่ง"], "", ""]
-                                        for i, (_, row) in enumerate(confirmed_df.iterrows(), 1)
-                                    ])
-                                    st.success(f"✅ สร้างแล้ว — tab '{ws_title}'")
+                                    _gc    = get_gc()
+                                    _sheet = _gc.open_by_key(out_sheet_id)
+                                    ws     = _sheet.worksheet(ev_name)
+                                    ws.clear()
+                                    ws.append_row(OUTPUT_HEADER)
+                                    ws.append_rows(updated_df.values.tolist())
+                                    st.success("✅ บันทึกแล้ว")
                                 except Exception as e:
-                                    st.error(f"สร้างไม่ได้: {e}")
+                                    st.error(f"บันทึกไม่ได้: {e}")
                             else:
-                                st.warning("ต้องระบุ Output Sheet URL ก่อน")
+                                st.success("✅ บันทึกในหน้านี้แล้ว")
+                            st.rerun()
 
-            # ── Tab 4: อีเมล ──────────────────────────────────────────────────
-            with tab_e:
-                if confirmed_df.empty:
-                    st.info("ยังไม่มีผู้ผ่านการยืนยัน")
-                else:
-                    ev_emails = (st.session_state.get("all_emails") or {}).get(ev_name, {})
-                    sent_key  = f"sent_{ev_name}"
-                    sent_set  = st.session_state.get(sent_key, set())
-                    recipients = [
-                        (int(row["#"]), row["ชื่อที่ใช้แข่ง"],
-                         ev_emails.get(row["ชื่อที่ใช้แข่ง"], ""))
-                        for _, row in confirmed_df.iterrows()
-                    ]
-                    has_emails = any(e for _, _, e in recipients)
-
-                    if not has_emails:
-                        st.info("ไม่พบช่องอีเมลในฟอร์ม — เพิ่มคำถาม 'อีเมล' ในฟอร์มแล้วรันใหม่")
-                    elif not GMAIL_ADDRESS or not GMAIL_APP_PWD:
-                        st.warning(
-                            "ตั้งค่าใน `.env` (local) หรือ Streamlit Secrets (cloud) ก่อน:\n"
-                            "```\nGMAIL_ADDRESS=xxx@gmail.com\nGMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx\n```"
-                        )
+                # ── Tab 3: ประกาศ ─────────────────────────────────────────────────
+                with tab_a:
+                    if confirmed_df.empty:
+                        st.info("ยังไม่มีผู้ผ่านการยืนยัน")
                     else:
-                        ev_meta   = (st.session_state.get("events_meta") or {}).get(ev_name, {})
-                        _ev_row   = edited_df[edited_df[COL_NAME] == ev_name]
-                        def _cfg(col):
-                            v = _ev_row[col].values[0] if not _ev_row.empty and col in _ev_row.columns else ""
-                            return str(v).strip()
-                        col_d, col_t = st.columns(2)
-                        event_date = col_d.text_input(
-                            "วันแข่งขัน", value=ev_meta.get("date", _cfg(COL_DATE)),
-                            placeholder="เช่น 28 มิ.ย. 69",
-                            key=f"edate_{ev_name}_{run_count}",
-                        )
-                        event_time = col_t.text_input(
-                            "เวลานัด", value=ev_meta.get("time", _cfg(COL_TIME)),
-                            placeholder="เช่น 10:00 น.",
-                            key=f"etime_{ev_name}_{run_count}",
-                        )
-                        event_venue = st.text_input(
-                            "สถานที่", value=ev_meta.get("venue", _cfg(COL_VENUE)),
-                            placeholder="เช่น ร้าน WAKA Game Shop",
-                            key=f"evenue_{ev_name}_{run_count}",
-                        )
-                        st.divider()
-                        with_email = [(n, name, em) for n, name, em in recipients if em]
-                        already    = sum(1 for _, name, _ in with_email if name in sent_set)
-                        check_all  = st.checkbox(
-                            "เลือกทั้งหมด",
-                            value=True,
-                            key=f"chkall_{ev_name}_{run_count}_{save_count}",
-                        )
-                        recipient_df = pd.DataFrame([
+                        col_fb, col_reg = st.columns([3, 1])
+                        with col_fb:
+                            post_lines = [
+                                f"🎮 ประกาศรายชื่อผู้เข้าแข่งขัน {ev_name}",
+                                f"มีผู้ผ่านการยืนยัน {len(confirmed_df)} คน\n",
+                            ]
+                            for i, (_, row) in enumerate(confirmed_df.iterrows(), 1):
+                                post_lines.append(f"{i}. {row['ชื่อที่ใช้แข่ง']}")
+                            post_lines.append(f"\n#WAKA #{ev_name.replace(' ', '')}")
+                            st.text_area(
+                                "📢 โพสต์ Facebook (คัดลอกได้เลย):",
+                                value="\n".join(post_lines),
+                                height=280,
+                                key=f"fb_{ev_name}_{run_count}_{save_count}",
+                            )
+                        with col_reg:
+                            st.write("**📋 ใบลงทะเบียน**")
+                            st.caption(f"{len(confirmed_df)} คน | เรียงตามลำดับสมัคร")
+                            if st.button("สร้างใน Google Sheet", key=f"reg_{ev_name}_{run_count}_{save_count}"):
+                                if out_sheet_id:
+                                    try:
+                                        _gc      = get_gc()
+                                        _sheet   = _gc.open_by_key(out_sheet_id)
+                                        ws_title = f"ลงทะเบียน — {ev_name}"
+                                        try:
+                                            ws_reg = _sheet.worksheet(ws_title)
+                                            ws_reg.clear()
+                                        except gspread.WorksheetNotFound:
+                                            ws_reg = _sheet.add_worksheet(title=ws_title, rows=200, cols=4)
+                                        ws_reg.append_row(["ลำดับ", "ชื่อที่ใช้แข่ง", "เช็คอิน ✓", "หมายเหตุ"])
+                                        ws_reg.append_rows([
+                                            [i, row["ชื่อที่ใช้แข่ง"], "", ""]
+                                            for i, (_, row) in enumerate(confirmed_df.iterrows(), 1)
+                                        ])
+                                        st.success(f"✅ สร้างแล้ว — tab '{ws_title}'")
+                                    except Exception as e:
+                                        st.error(f"สร้างไม่ได้: {e}")
+                                else:
+                                    st.warning("ต้องระบุ Output Sheet URL ก่อน")
+
+                # ── Tab 4: อีเมล ──────────────────────────────────────────────────
+                with tab_e:
+                    if confirmed_df.empty:
+                        st.info("ยังไม่มีผู้ผ่านการยืนยัน")
+                    else:
+                        ev_emails = (st.session_state.get("all_emails") or {}).get(ev_name, {})
+                        sent_key  = f"sent_{ev_name}"
+                        sent_set  = st.session_state.get(sent_key, set())
+                        recipients = [
+                            (int(row["#"]), row["ชื่อที่ใช้แข่ง"],
+                             ev_emails.get(row["ชื่อที่ใช้แข่ง"], ""))
+                            for _, row in confirmed_df.iterrows()
+                        ]
+                        has_emails = any(e for _, _, e in recipients)
+
+                        if not has_emails:
+                            st.info("ไม่พบช่องอีเมลในฟอร์ม — เพิ่มคำถาม 'อีเมล' ในฟอร์มแล้วรันใหม่")
+                        elif not GMAIL_ADDRESS or not GMAIL_APP_PWD:
+                            st.warning(
+                                "ตั้งค่าใน `.env` (local) หรือ Streamlit Secrets (cloud) ก่อน:\n"
+                                "```\nGMAIL_ADDRESS=xxx@gmail.com\nGMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx\n```"
+                            )
+                        else:
+                            ev_meta   = (st.session_state.get("events_meta") or {}).get(ev_name, {})
+                            _ev_row   = edited_df[edited_df[COL_NAME] == ev_name]
+                            def _cfg(col):
+                                v = _ev_row[col].values[0] if not _ev_row.empty and col in _ev_row.columns else ""
+                                return str(v).strip()
+                            col_d, col_t = st.columns(2)
+                            event_date = col_d.text_input(
+                                "วันแข่งขัน", value=ev_meta.get("date", _cfg(COL_DATE)),
+                                placeholder="เช่น 28 มิ.ย. 69",
+                                key=f"edate_{ev_name}_{run_count}",
+                            )
+                            event_time = col_t.text_input(
+                                "เวลานัด", value=ev_meta.get("time", _cfg(COL_TIME)),
+                                placeholder="เช่น 10:00 น.",
+                                key=f"etime_{ev_name}_{run_count}",
+                            )
+                            event_venue = st.text_input(
+                                "สถานที่", value=ev_meta.get("venue", _cfg(COL_VENUE)),
+                                placeholder="เช่น ร้าน WAKA Game Shop",
+                                key=f"evenue_{ev_name}_{run_count}",
+                            )
+                            st.divider()
+                            with_email = [(n, name, em) for n, name, em in recipients if em]
+                            already    = sum(1 for _, name, _ in with_email if name in sent_set)
+                            check_all  = st.checkbox(
+                                "เลือกทั้งหมด",
+                                value=True,
+                                key=f"chkall_{ev_name}_{run_count}_{save_count}",
+                            )
+                            recipient_df = pd.DataFrame([
+                                {
+                                    "ส่ง":            check_all if name not in sent_set else False,
+                                    "#":              n,
+                                    "ชื่อที่ใช้แข่ง": name,
+                                    "อีเมล":          em,
+                                    "":               "ส่งแล้ว ✓" if name in sent_set else "",
+                                }
+                                for n, name, em in with_email
+                            ])
+                            edited = st.data_editor(
+                                recipient_df,
+                                key=f"email_ed_{ev_name}_{run_count}_{save_count}_{check_all}",
+                                column_config={
+                                    "ส่ง":            st.column_config.CheckboxColumn("ส่ง", width="small"),
+                                    "#":              st.column_config.NumberColumn("#", width="small"),
+                                    "ชื่อที่ใช้แข่ง": st.column_config.TextColumn("ชื่อที่ใช้แข่ง"),
+                                    "อีเมล":          st.column_config.TextColumn("อีเมล"),
+                                    "":               st.column_config.TextColumn("", width="small"),
+                                },
+                                disabled=["#", "ชื่อที่ใช้แข่ง", "อีเมล", ""],
+                                hide_index=True,
+                                use_container_width=True,
+                            )
+                            selected = [
+                                (int(row["#"]), row["ชื่อที่ใช้แข่ง"], row["อีเมล"])
+                                for _, row in edited.iterrows() if row["ส่ง"]
+                            ]
+                            st.caption(f"เลือก **{len(selected)}** คน | ส่งแล้ว {already} คน")
+                            if selected:
+                                if st.button(
+                                    f"📧 ส่งอีเมล {len(selected)} คน",
+                                    key=f"email_send_{ev_name}_{run_count}_{save_count}",
+                                ):
+                                    errors = []
+                                    prog   = st.progress(0, text="กำลังส่ง...")
+                                    for i, (n, name, em) in enumerate(selected):
+                                        try:
+                                            send_confirmation_email(em, ev_name, name, n, event_date, event_time, event_venue)
+                                            sent_set.add(name)
+                                        except Exception as e:
+                                            errors.append(f"{name}: {e}")
+                                        prog.progress((i + 1) / len(selected), text=f"ส่งถึง {name}...")
+                                    st.session_state[sent_key] = sent_set
+                                    if errors:
+                                        st.error("ส่งไม่ได้บางส่วน:\n" + "\n".join(errors))
+                                    else:
+                                        st.success(f"✅ ส่งอีเมลครบ {len(selected)} คนแล้ว")
+                                    st.rerun()
+
+                # ── Tab 5: เช็คอิน ────────────────────────────────────────────────
+                with tab_c:
+                    if confirmed_df.empty:
+                        st.info("ยังไม่มีผู้ผ่านการยืนยัน")
+                    else:
+                        ci_key        = f"checkin_{ev_name}"
+                        last_scan_key = f"last_scan_{ev_name}"
+                        scan_msg_key  = f"scan_msg_{ev_name}"
+
+                        # โหลด check-in state จาก sheet ครั้งแรก
+                        if ci_key not in st.session_state:
+                            ci_state: dict[str, str] = {}
+                            if out_sheet_id:
+                                try:
+                                    _gc    = get_gc()
+                                    _sheet = _gc.open_by_key(out_sheet_id)
+                                    ws_reg = _sheet.worksheet(f"ลงทะเบียน — {ev_name}")
+                                    reg_rows = ws_reg.get_all_values()
+                                    if len(reg_rows) > 1:
+                                        hdr    = reg_rows[0]
+                                        n_idx  = next((i for i, h in enumerate(hdr) if h == "ชื่อที่ใช้แข่ง"), 1)
+                                        ci_idx = next((i for i, h in enumerate(hdr) if "เช็คอิน" in h), 2)
+                                        for r in reg_rows[1:]:
+                                            pname = r[n_idx] if n_idx < len(r) else ""
+                                            ci_v  = r[ci_idx] if ci_idx < len(r) else ""
+                                            if pname:
+                                                ci_state[pname] = ci_v
+                                except Exception:
+                                    pass
+                            st.session_state[ci_key] = ci_state
+
+                        ci_state    = st.session_state[ci_key]
+                        valid_names = set(confirmed_df["ชื่อที่ใช้แข่ง"].tolist())
+
+                        # ── QR Scanner ────────────────────────────────────────────
+                        if HAS_SCANNER:
+                            st.write("**📷 สแกน QR จากอีเมลผู้แข่ง**")
+                            scanned = _qr_scanner(key=f"qr_{ev_name}_{run_count}")
+
+                            if scanned and scanned != st.session_state.get(last_scan_key, ""):
+                                st.session_state[last_scan_key] = scanned
+                                if scanned.startswith("WAKA|"):
+                                    parts        = scanned.split("|")
+                                    scanned_name = parts[2] if len(parts) >= 3 else ""
+                                    if scanned_name in valid_names:
+                                        if ci_state.get(scanned_name):
+                                            st.session_state[scan_msg_key] = ("warning", f"⚠️ {scanned_name} เช็คอินไปแล้ว")
+                                        else:
+                                            ci_state[scanned_name] = "✓"
+                                            st.session_state[ci_key] = ci_state
+                                            if out_sheet_id:
+                                                try:
+                                                    _sync_checkin_sheet(out_sheet_id, ev_name, confirmed_df, ci_state, name_filter=scanned_name)
+                                                except Exception:
+                                                    pass
+                                            st.session_state[scan_msg_key] = ("success", f"✅ เช็คอิน **{scanned_name}** แล้ว!")
+                                    else:
+                                        st.session_state[scan_msg_key] = ("error", f"ไม่พบ '{scanned_name}' ในรายการ {ev_name}")
+                                else:
+                                    st.session_state[scan_msg_key] = ("error", "QR ไม่ถูกต้อง — ใช้ QR จากอีเมลยืนยันเท่านั้น")
+
+                            # แสดงผลการสแกนล่าสุด
+                            if scan_msg_key in st.session_state:
+                                lvl, msg = st.session_state[scan_msg_key]
+                                if lvl == "success":
+                                    st.success(msg)
+                                elif lvl == "warning":
+                                    st.warning(msg)
+                                else:
+                                    st.error(msg)
+
+                            st.divider()
+                        else:
+                            st.info("ติดตั้ง `streamlit-qrcode-scanner` เพื่อใช้งาน QR scanner")
+
+                        # ── รายชื่อ + tick manual ─────────────────────────────────
+                        all_ci_rows = [
                             {
-                                "ส่ง":            check_all if name not in sent_set else False,
-                                "#":              n,
-                                "ชื่อที่ใช้แข่ง": name,
-                                "อีเมล":          em,
-                                "":               "ส่งแล้ว ✓" if name in sent_set else "",
+                                "เช็คอิน ✓":      bool(ci_state.get(row["ชื่อที่ใช้แข่ง"], "")),
+                                "#":               int(row["#"]),
+                                "ชื่อที่ใช้แข่ง": row["ชื่อที่ใช้แข่ง"],
                             }
-                            for n, name, em in with_email
-                        ])
-                        edited = st.data_editor(
-                            recipient_df,
-                            key=f"email_ed_{ev_name}_{run_count}_{save_count}_{check_all}",
+                            for _, row in confirmed_df.iterrows()
+                        ]
+                        checked_in_n = sum(1 for r in all_ci_rows if r["เช็คอิน ✓"])
+                        st.caption(f"เช็คอินแล้ว **{checked_in_n} / {len(all_ci_rows)}** คน")
+
+                        search = st.text_input(
+                            "🔍 ค้นหา", placeholder="พิมพ์ชื่อเพื่อกรอง…",
+                            key=f"ci_search_{ev_name}_{run_count}",
+                        )
+                        ci_df = pd.DataFrame(all_ci_rows)
+                        if search:
+                            ci_df = ci_df[ci_df["ชื่อที่ใช้แข่ง"].str.contains(search, case=False, na=False)]
+
+                        edited_ci = st.data_editor(
+                            ci_df,
+                            key=f"ci_ed_{ev_name}_{run_count}_{save_count}",
                             column_config={
-                                "ส่ง":            st.column_config.CheckboxColumn("ส่ง", width="small"),
-                                "#":              st.column_config.NumberColumn("#", width="small"),
+                                "เช็คอิน ✓":      st.column_config.CheckboxColumn("เช็คอิน ✓", width="small"),
+                                "#":               st.column_config.NumberColumn("#", width="small"),
                                 "ชื่อที่ใช้แข่ง": st.column_config.TextColumn("ชื่อที่ใช้แข่ง"),
-                                "อีเมล":          st.column_config.TextColumn("อีเมล"),
-                                "":               st.column_config.TextColumn("", width="small"),
                             },
-                            disabled=["#", "ชื่อที่ใช้แข่ง", "อีเมล", ""],
+                            disabled=["#", "ชื่อที่ใช้แข่ง"],
                             hide_index=True,
                             use_container_width=True,
                         )
-                        selected = [
-                            (int(row["#"]), row["ชื่อที่ใช้แข่ง"], row["อีเมล"])
-                            for _, row in edited.iterrows() if row["ส่ง"]
-                        ]
-                        st.caption(f"เลือก **{len(selected)}** คน | ส่งแล้ว {already} คน")
-                        if selected:
-                            if st.button(
-                                f"📧 ส่งอีเมล {len(selected)} คน",
-                                key=f"email_send_{ev_name}_{run_count}_{save_count}",
-                            ):
-                                errors = []
-                                prog   = st.progress(0, text="กำลังส่ง...")
-                                for i, (n, name, em) in enumerate(selected):
-                                    try:
-                                        send_confirmation_email(em, ev_name, name, n, event_date, event_time, event_venue)
-                                        sent_set.add(name)
-                                    except Exception as e:
-                                        errors.append(f"{name}: {e}")
-                                    prog.progress((i + 1) / len(selected), text=f"ส่งถึง {name}...")
-                                st.session_state[sent_key] = sent_set
-                                if errors:
-                                    st.error("ส่งไม่ได้บางส่วน:\n" + "\n".join(errors))
-                                else:
-                                    st.success(f"✅ ส่งอีเมลครบ {len(selected)} คนแล้ว")
-                                st.rerun()
 
-            # ── Tab 5: เช็คอิน ────────────────────────────────────────────────
-            with tab_c:
-                if confirmed_df.empty:
-                    st.info("ยังไม่มีผู้ผ่านการยืนยัน")
-                else:
-                    ci_key        = f"checkin_{ev_name}"
-                    last_scan_key = f"last_scan_{ev_name}"
-                    scan_msg_key  = f"scan_msg_{ev_name}"
-
-                    # โหลด check-in state จาก sheet ครั้งแรก
-                    if ci_key not in st.session_state:
-                        ci_state: dict[str, str] = {}
-                        if out_sheet_id:
-                            try:
-                                _gc    = get_gc()
-                                _sheet = _gc.open_by_key(out_sheet_id)
-                                ws_reg = _sheet.worksheet(f"ลงทะเบียน — {ev_name}")
-                                reg_rows = ws_reg.get_all_values()
-                                if len(reg_rows) > 1:
-                                    hdr    = reg_rows[0]
-                                    n_idx  = next((i for i, h in enumerate(hdr) if h == "ชื่อที่ใช้แข่ง"), 1)
-                                    ci_idx = next((i for i, h in enumerate(hdr) if "เช็คอิน" in h), 2)
-                                    for r in reg_rows[1:]:
-                                        pname = r[n_idx] if n_idx < len(r) else ""
-                                        ci_v  = r[ci_idx] if ci_idx < len(r) else ""
-                                        if pname:
-                                            ci_state[pname] = ci_v
-                            except Exception:
-                                pass
-                        st.session_state[ci_key] = ci_state
-
-                    ci_state    = st.session_state[ci_key]
-                    valid_names = set(confirmed_df["ชื่อที่ใช้แข่ง"].tolist())
-
-                    # ── QR Scanner ────────────────────────────────────────────
-                    if HAS_SCANNER:
-                        st.write("**📷 สแกน QR จากอีเมลผู้แข่ง**")
-                        scanned = _qr_scanner(key=f"qr_{ev_name}_{run_count}")
-
-                        if scanned and scanned != st.session_state.get(last_scan_key, ""):
-                            st.session_state[last_scan_key] = scanned
-                            if scanned.startswith("WAKA|"):
-                                parts        = scanned.split("|")
-                                scanned_name = parts[2] if len(parts) >= 3 else ""
-                                if scanned_name in valid_names:
-                                    if ci_state.get(scanned_name):
-                                        st.session_state[scan_msg_key] = ("warning", f"⚠️ {scanned_name} เช็คอินไปแล้ว")
-                                    else:
-                                        ci_state[scanned_name] = "✓"
-                                        st.session_state[ci_key] = ci_state
-                                        if out_sheet_id:
-                                            try:
-                                                _sync_checkin_sheet(out_sheet_id, ev_name, confirmed_df, ci_state, name_filter=scanned_name)
-                                            except Exception:
-                                                pass
-                                        st.session_state[scan_msg_key] = ("success", f"✅ เช็คอิน **{scanned_name}** แล้ว!")
-                                else:
-                                    st.session_state[scan_msg_key] = ("error", f"ไม่พบ '{scanned_name}' ในรายการ {ev_name}")
+                        if st.button("💾 บันทึกเช็คอิน", key=f"ci_save_{ev_name}_{run_count}_{save_count}"):
+                            for _, row in edited_ci.iterrows():
+                                ci_state[row["ชื่อที่ใช้แข่ง"]] = "✓" if row["เช็คอิน ✓"] else ""
+                            st.session_state[ci_key] = ci_state
+                            if out_sheet_id:
+                                try:
+                                    _sync_checkin_sheet(out_sheet_id, ev_name, confirmed_df, ci_state)
+                                    st.success("✅ บันทึกเช็คอินแล้ว")
+                                except Exception as e:
+                                    st.error(f"บันทึกไม่ได้: {e}")
                             else:
-                                st.session_state[scan_msg_key] = ("error", "QR ไม่ถูกต้อง — ใช้ QR จากอีเมลยืนยันเท่านั้น")
+                                st.success("✅ บันทึกในหน้านี้แล้ว")
+                            st.rerun()
 
-                        # แสดงผลการสแกนล่าสุด
-                        if scan_msg_key in st.session_state:
-                            lvl, msg = st.session_state[scan_msg_key]
-                            if lvl == "success":
-                                st.success(msg)
-                            elif lvl == "warning":
-                                st.warning(msg)
-                            else:
-                                st.error(msg)
+    # ─── ส่วน 5: เช็คอิน วันงาน → ดูที่หน้า Check-in แยกต่างหาก ─────────────────
 
-                        st.divider()
-                    else:
-                        st.info("ติดตั้ง `streamlit-qrcode-scanner` เพื่อใช้งาน QR scanner")
-
-                    # ── รายชื่อ + tick manual ─────────────────────────────────
-                    all_ci_rows = [
-                        {
-                            "เช็คอิน ✓":      bool(ci_state.get(row["ชื่อที่ใช้แข่ง"], "")),
-                            "#":               int(row["#"]),
-                            "ชื่อที่ใช้แข่ง": row["ชื่อที่ใช้แข่ง"],
-                        }
-                        for _, row in confirmed_df.iterrows()
-                    ]
-                    checked_in_n = sum(1 for r in all_ci_rows if r["เช็คอิน ✓"])
-                    st.caption(f"เช็คอินแล้ว **{checked_in_n} / {len(all_ci_rows)}** คน")
-
-                    search = st.text_input(
-                        "🔍 ค้นหา", placeholder="พิมพ์ชื่อเพื่อกรอง…",
-                        key=f"ci_search_{ev_name}_{run_count}",
-                    )
-                    ci_df = pd.DataFrame(all_ci_rows)
-                    if search:
-                        ci_df = ci_df[ci_df["ชื่อที่ใช้แข่ง"].str.contains(search, case=False, na=False)]
-
-                    edited_ci = st.data_editor(
-                        ci_df,
-                        key=f"ci_ed_{ev_name}_{run_count}_{save_count}",
-                        column_config={
-                            "เช็คอิน ✓":      st.column_config.CheckboxColumn("เช็คอิน ✓", width="small"),
-                            "#":               st.column_config.NumberColumn("#", width="small"),
-                            "ชื่อที่ใช้แข่ง": st.column_config.TextColumn("ชื่อที่ใช้แข่ง"),
-                        },
-                        disabled=["#", "ชื่อที่ใช้แข่ง"],
-                        hide_index=True,
-                        use_container_width=True,
-                    )
-
-                    if st.button("💾 บันทึกเช็คอิน", key=f"ci_save_{ev_name}_{run_count}_{save_count}"):
-                        for _, row in edited_ci.iterrows():
-                            ci_state[row["ชื่อที่ใช้แข่ง"]] = "✓" if row["เช็คอิน ✓"] else ""
-                        st.session_state[ci_key] = ci_state
-                        if out_sheet_id:
-                            try:
-                                _sync_checkin_sheet(out_sheet_id, ev_name, confirmed_df, ci_state)
-                                st.success("✅ บันทึกเช็คอินแล้ว")
-                            except Exception as e:
-                                st.error(f"บันทึกไม่ได้: {e}")
-                        else:
-                            st.success("✅ บันทึกในหน้านี้แล้ว")
-                        st.rerun()
-
-# ─── ส่วน 5: เช็คอิน วันงาน → ดูที่หน้า Check-in แยกต่างหาก ─────────────────
-
-st.divider()
-st.info("🎫 **เช็คอินวันงาน** — เปิดหน้า **Checkin** ในแถบซ้ายมือ (ไม่ต้องอัปโหลดไฟล์ธนาคาร)")
+    st.divider()
+    st.info("🎫 **เช็คอินวันงาน** — เปิดหน้า **Checkin** ในแถบซ้ายมือ (ไม่ต้องอัปโหลดไฟล์ธนาคาร)")
