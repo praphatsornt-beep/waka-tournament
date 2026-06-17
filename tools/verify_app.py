@@ -19,8 +19,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-GMAIL_ADDRESS = os.getenv("GMAIL_ADDRESS", "")
-GMAIL_APP_PWD = os.getenv("GMAIL_APP_PASSWORD", "")
+try:
+    GMAIL_ADDRESS = st.secrets.get("GMAIL_ADDRESS", "") or os.getenv("GMAIL_ADDRESS", "")
+    GMAIL_APP_PWD = st.secrets.get("GMAIL_APP_PASSWORD", "") or os.getenv("GMAIL_APP_PASSWORD", "")
+except Exception:
+    GMAIL_ADDRESS = os.getenv("GMAIL_ADDRESS", "")
+    GMAIL_APP_PWD = os.getenv("GMAIL_APP_PASSWORD", "")
 
 try:
     import gspread
@@ -818,32 +822,62 @@ if "all_results" in st.session_state:
                         "```\nGMAIL_ADDRESS=xxx@gmail.com\nGMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx\n```"
                     )
                 else:
-                    to_send = [(n, name, email) for n, name, email in recipients
-                               if email and name not in sent_set]
-                    already = len(recipients) - len(to_send)
-                    st.caption(f"จะส่ง **{len(to_send)}** คน | ส่งแล้ว {already} คน")
+                    with_email = [(n, name, em) for n, name, em in recipients if em]
+                    already    = sum(1 for _, name, _ in with_email if name in sent_set)
 
-                    if to_send:
-                        with st.expander("ดูรายชื่อที่จะส่ง"):
-                            for n, name, email in to_send:
-                                st.write(f"{n}. {name} → {email}")
+                    # เลือกทั้งหมด / ยกเลิก
+                    check_all = st.checkbox(
+                        "เลือกทั้งหมด",
+                        value=True,
+                        key=f"chkall_{ev_name}_{run_count}_{save_count}",
+                    )
+                    recipient_df = pd.DataFrame([
+                        {
+                            "ส่ง":          check_all if name not in sent_set else False,
+                            "#":            n,
+                            "ชื่อที่ใช้แข่ง": name,
+                            "อีเมล":        em,
+                            "":             "ส่งแล้ว ✓" if name in sent_set else "",
+                        }
+                        for n, name, em in with_email
+                    ])
+                    edited = st.data_editor(
+                        recipient_df,
+                        key=f"email_ed_{ev_name}_{run_count}_{save_count}_{check_all}",
+                        column_config={
+                            "ส่ง":          st.column_config.CheckboxColumn("ส่ง", width="small"),
+                            "#":            st.column_config.NumberColumn("#", width="small"),
+                            "ชื่อที่ใช้แข่ง": st.column_config.TextColumn("ชื่อที่ใช้แข่ง"),
+                            "อีเมล":        st.column_config.TextColumn("อีเมล"),
+                            "":             st.column_config.TextColumn("", width="small"),
+                        },
+                        disabled=["#", "ชื่อที่ใช้แข่ง", "อีเมล", ""],
+                        hide_index=True,
+                        use_container_width=True,
+                    )
+                    selected = [
+                        (int(row["#"]), row["ชื่อที่ใช้แข่ง"], row["อีเมล"])
+                        for _, row in edited.iterrows() if row["ส่ง"]
+                    ]
+                    st.caption(f"เลือก **{len(selected)}** คน | ส่งแล้วแล้ว {already} คน")
 
+                    if selected:
                         if st.button(
-                            f"📧 ส่งอีเมล {len(to_send)} คน",
-                            key=f"email_{ev_name}_{run_count}_{save_count}",
+                            f"📧 ส่งอีเมล {len(selected)} คน",
+                            key=f"email_send_{ev_name}_{run_count}_{save_count}",
                         ):
                             errors = []
                             prog   = st.progress(0, text="กำลังส่ง...")
-                            for i, (n, name, email) in enumerate(to_send):
+                            for i, (n, name, em) in enumerate(selected):
                                 try:
-                                    send_confirmation_email(email, ev_name, name, n)
+                                    send_confirmation_email(em, ev_name, name, n)
                                     sent_set.add(name)
                                 except Exception as e:
                                     errors.append(f"{name}: {e}")
-                                prog.progress((i + 1) / len(to_send), text=f"ส่งถึง {name}...")
+                                prog.progress((i + 1) / len(selected), text=f"ส่งถึง {name}...")
                             st.session_state[sent_key] = sent_set
                             if errors:
                                 st.error("ส่งไม่ได้บางส่วน:\n" + "\n".join(errors))
                             else:
-                                st.success(f"✅ ส่งอีเมลครบ {len(to_send)} คนแล้ว")
+                                st.success(f"✅ ส่งอีเมลครบ {len(selected)} คนแล้ว")
                             st.rerun()
