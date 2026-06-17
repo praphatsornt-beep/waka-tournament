@@ -946,20 +946,24 @@ if "all_results" in st.session_state:
                             "```\nGMAIL_ADDRESS=xxx@gmail.com\nGMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx\n```"
                         )
                     else:
-                        ev_meta = (st.session_state.get("events_meta") or {}).get(ev_name, {})
+                        ev_meta   = (st.session_state.get("events_meta") or {}).get(ev_name, {})
+                        _ev_row   = edited_df[edited_df[COL_NAME] == ev_name]
+                        def _cfg(col):
+                            v = _ev_row[col].values[0] if not _ev_row.empty and col in _ev_row.columns else ""
+                            return str(v).strip()
                         col_d, col_t = st.columns(2)
                         event_date = col_d.text_input(
-                            "วันแข่งขัน", value=ev_meta.get("date", ""),
+                            "วันแข่งขัน", value=ev_meta.get("date", _cfg(COL_DATE)),
                             placeholder="เช่น 28 มิ.ย. 69",
                             key=f"edate_{ev_name}_{run_count}",
                         )
                         event_time = col_t.text_input(
-                            "เวลานัด", value=ev_meta.get("time", ""),
+                            "เวลานัด", value=ev_meta.get("time", _cfg(COL_TIME)),
                             placeholder="เช่น 10:00 น.",
                             key=f"etime_{ev_name}_{run_count}",
                         )
                         event_venue = st.text_input(
-                            "สถานที่", value=ev_meta.get("venue", ""),
+                            "สถานที่", value=ev_meta.get("venue", _cfg(COL_VENUE)),
                             placeholder="เช่น ร้าน WAKA Game Shop",
                             key=f"evenue_{ev_name}_{run_count}",
                         )
