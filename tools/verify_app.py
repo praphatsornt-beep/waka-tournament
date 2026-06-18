@@ -1136,7 +1136,10 @@ with tab_verify:
                 | _s_str.str.contains("🚫", na=False, regex=False)
             ).sum()
 
-            confirmed_df = df[df["สถานะ"] == "✅"].sort_values("#").reset_index(drop=True)
+            confirmed_df = df[
+                df["สถานะ"].astype(str).str.contains("✅", na=False, regex=False)
+                | (df["ตรวจสลิปแล้ว"].astype(str).str.strip() != "")
+            ].sort_values("#").reset_index(drop=True)
 
             with st.expander(
                 f"**{ev_name}** — {confirmed}/{len(results)} ยืนยัน"
@@ -1266,9 +1269,11 @@ with tab_list:
             if not results:
                 st.info(f"**{ev_name}** — ยังไม่มีข้อมูล")
                 continue
-            df           = pd.DataFrame(results, columns=OUTPUT_HEADER)
-            confirmed_df = df[df["สถานะ"] == "✅"].sort_values("#").reset_index(drop=True)
-            confirmed    = len(confirmed_df)
+            df            = pd.DataFrame(results, columns=OUTPUT_HEADER)
+            _s_confirmed  = df["สถานะ"].astype(str).str.contains("✅", na=False, regex=False)
+            _s_override   = df["ตรวจสลิปแล้ว"].astype(str).str.strip() != ""
+            confirmed_df  = df[_s_confirmed | _s_override].sort_values("#").reset_index(drop=True)
+            confirmed     = len(confirmed_df)
 
             with st.expander(f"**{ev_name}** — {confirmed} คนยืนยัน", expanded=True):
                 tab_a, tab_e, tab_c = st.tabs(["📢 ประกาศ", "📧 อีเมล", "🎫 เช็คอิน"])
