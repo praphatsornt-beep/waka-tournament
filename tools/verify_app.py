@@ -1160,9 +1160,7 @@ with tab_verify:
             df        = pd.DataFrame(results, columns=OUTPUT_HEADER)
             confirmed = sum(1 for r in results if r[5] == "✅")
             warned    = (df["สถานะ"] == "⚠️").sum()
-            need_review = warned + (
-                (df["สถานะ"] == "❌") & (df["ลิงค์สลิป"].str.strip() != "")
-            ).sum()
+            need_review = warned + (df["สถานะ"] == "❌").sum()
 
             confirmed_df = df[df["สถานะ"] == "✅"].sort_values("#").reset_index(drop=True)
 
@@ -1184,10 +1182,8 @@ with tab_verify:
 
                 # ── Tab 2: ตรวจสลิป ───────────────────────────────────────────────
                 with tab_s:
-                    # แสดง ⚠️ ทุกแถว + ❌ ที่มีลิงก์สลิป (โอนผ่านธนาคารอื่น ระบบหาไม่เจอ)
-                    _needs_review = (df["สถานะ"] == "⚠️") | (
-                        (df["สถานะ"] == "❌") & (df["ลิงค์สลิป"].str.strip() != "")
-                    )
+                    # แสดง ⚠️ ทุกแถว + ❌ ทุกแถว (admin ตัดสินใจเองว่าจะ approve หรือไม่)
+                    _needs_review = (df["สถานะ"] == "⚠️") | (df["สถานะ"] == "❌")
                     warn_df = df.loc[_needs_review,
                                      ["#", "ชื่อที่ใช้แข่ง", "ชื่อบัญชีที่โอน", "รายละเอียด",
                                       "ลิงค์สลิป", "ตรวจสลิปแล้ว"]].copy()
