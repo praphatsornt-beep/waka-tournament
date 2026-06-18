@@ -691,6 +691,77 @@ def style_row(row):
     color = STATUS_COLORS.get(row["สถานะ"], "")
     return [color] * len(row)
 
+
+def _load_from_sheet(edited_df, output_url: str, run_count: int) -> str | None:
+    """โหลดผลจาก Google Sheet → session_state  คืน None=สำเร็จ, str=error message"""
+    try:
+        _gc  = get_gc()
+        _oid, _ = parse_sheet_url(output_url)
+        _sht = _gc.open_by_key(_oid)
+        _loaded_results: dict = {}
+        _loaded_emails:  dict = {}
+        _loaded_summary: list = []
+        for _, _erow in edited_df.iterrows():
+            _en = str(_erow.get(COL_NAME, "")).strip()
+            _eu = str(_erow.get(COL_URL,  "")).strip()
+            if not _en:
+                continue
+            try:
+                _ws   = _sht.worksheet(_en)
+                _rows = _ws.get_all_values()
+                _loaded_results[_en] = _rows[1:] if len(_rows) > 1 else []
+            except gspread.WorksheetNotFound:
+                _loaded_results[_en] = []
+            _em: dict[str, str] = {}
+            if _eu:
+                try:
+                    _sid, _gid = parse_sheet_url(_eu)
+                    _src = _gc.open_by_key(_sid)
+                    _sw  = _src.get_worksheet_by_id(_gid) if _gid is not None else _src.sheet1
+                    _sr  = _sw.get_all_values()
+                    if len(_sr) > 1:
+                        _sc = detect_columns(_sr[0], FORM_COLUMN_KEYWORDS)
+                        for _r in _sr[1:]:
+                            def _cv(k, _row=_r, _cols=_sc):
+                                _i = _cols.get(k)
+                                return _row[_i].strip() if _i is not None and _i < len(_row) else ""
+                            _gn = _cv("game_name") or _cv("openchat_name")
+                            _ea = _cv("email")
+                            if _gn and _ea:
+                                _em[_gn] = _ea
+                except Exception:
+                    pass
+            _loaded_emails[_en] = _em
+            _d  = _loaded_results[_en]
+            _ok = sum(1 for _r in _d if len(_r) > 5 and _r[5] == "✅")
+            _wn = sum(1 for _r in _d if len(_r) > 5 and _r[5] == "⚠️")
+            _dp = sum(1 for _r in _d if len(_r) > 5 and _r[5] == "🚫")
+            _fl = sum(1 for _r in _d if len(_r) > 5 and _r[5] == "❌")
+            _loaded_summary.append({
+                "การแข่งขัน": _en,
+                "✅ ยืนยัน": _ok, "⚠️ ตรวจสอบ": _wn,
+                "🚫 ซ้ำ": _dp, "❌ ไม่พบ": _fl, "ทั้งหมด": len(_d),
+            })
+        st.session_state["all_results"]      = _loaded_results
+        st.session_state["all_emails"]       = _loaded_emails
+        st.session_state["summary_data"]     = _loaded_summary
+        st.session_state["out_sheet_id_run"] = _oid
+        st.session_state["events_meta"]      = {
+            str(_r.get(COL_NAME, "")).strip(): {
+                "date":  str(_r.get(COL_DATE,  "")).strip(),
+                "time":  str(_r.get(COL_TIME,  "")).strip(),
+                "venue": str(_r.get(COL_VENUE, "")).strip(),
+            }
+            for _, _r in edited_df.iterrows()
+            if str(_r.get(COL_NAME, "")).strip()
+        }
+        st.session_state["run_count"]  = run_count + 1
+        st.session_state["save_count"] = 0
+        return None
+    except Exception as _e:
+        return str(_e)
+
+
 # ── UI ────────────────────────────────────────────────────────────────────────
 
 st.set_page_config(page_title="WAKA Tournament", page_icon="🎮", layout="wide")
@@ -999,82 +1070,27 @@ with tab_list:
     _run_count    = st.session_state.get("run_count", 0)
     _save_count   = st.session_state.get("save_count", 0)
 
-    # ── โหลดจาก Sheet (ถ้ายังไม่มีข้อมูลในหน่วยความจำ) ──────────────────────
+    # ── Auto-load ครั้งแรก + ปุ่มโหลดใหม่ ───────────────────────────────────────
+    _col_reload, _col_pad = st.columns([1, 5])
+    if _col_reload.button("🔄 โหลดใหม่", key="btn_reload_list"):
+        for _k in ("all_results", "all_emails", "summary_data"):
+            st.session_state.pop(_k, None)
+        st.rerun()
+
     if not _list_results:
         if not output_url.strip():
             st.info("ระบุ Output Sheet URL ในแท็บ ⚙️ ตั้งค่า แล้วกด 💾 บันทึกการตั้งค่า ก่อน")
         else:
-            st.caption("ยังไม่มีข้อมูลในหน่วยความจำ — กดโหลดจาก Google Sheet ได้เลย")
-            if st.button("📋 โหลดรายชื่อจาก Sheet", type="primary"):
-                try:
-                    _gc  = get_gc()
-                    _oid, _ = parse_sheet_url(output_url)
-                    _sht = _gc.open_by_key(_oid)
-                    _loaded_results: dict = {}
-                    _loaded_emails:  dict = {}
-                    _loaded_summary: list = []
-                    for _, _erow in edited_df.iterrows():
-                        _en = str(_erow.get(COL_NAME, "")).strip()
-                        _eu = str(_erow.get(COL_URL,  "")).strip()
-                        if not _en:
-                            continue
-                        # ผลการตรวจที่บันทึกไว้
-                        try:
-                            _ws   = _sht.worksheet(_en)
-                            _rows = _ws.get_all_values()
-                            _loaded_results[_en] = _rows[1:] if len(_rows) > 1 else []
-                        except gspread.WorksheetNotFound:
-                            _loaded_results[_en] = []
-                        # อีเมลจาก Form sheet
-                        _em: dict[str, str] = {}
-                        if _eu:
-                            try:
-                                _sid, _gid = parse_sheet_url(_eu)
-                                _src = _gc.open_by_key(_sid)
-                                _sw  = _src.get_worksheet_by_id(_gid) if _gid is not None else _src.sheet1
-                                _sr  = _sw.get_all_values()
-                                if len(_sr) > 1:
-                                    _sc = detect_columns(_sr[0], FORM_COLUMN_KEYWORDS)
-                                    for _r in _sr[1:]:
-                                        def _cv(k, _row=_r, _cols=_sc):
-                                            _i = _cols.get(k)
-                                            return _row[_i].strip() if _i is not None and _i < len(_row) else ""
-                                        _gn = _cv("game_name") or _cv("openchat_name")
-                                        _ea = _cv("email")
-                                        if _gn and _ea:
-                                            _em[_gn] = _ea
-                            except Exception:
-                                pass
-                        _loaded_emails[_en] = _em
-                        # สรุป
-                        _d  = _loaded_results[_en]
-                        _ok = sum(1 for _r in _d if len(_r) > 5 and _r[5] == "✅")
-                        _wn = sum(1 for _r in _d if len(_r) > 5 and _r[5] == "⚠️")
-                        _dp = sum(1 for _r in _d if len(_r) > 5 and _r[5] == "🚫")
-                        _fl = sum(1 for _r in _d if len(_r) > 5 and _r[5] == "❌")
-                        _loaded_summary.append({
-                            "การแข่งขัน": _en,
-                            "✅ ยืนยัน": _ok, "⚠️ ตรวจสอบ": _wn,
-                            "🚫 ซ้ำ": _dp, "❌ ไม่พบ": _fl, "ทั้งหมด": len(_d),
-                        })
-                    st.session_state["all_results"]      = _loaded_results
-                    st.session_state["all_emails"]       = _loaded_emails
-                    st.session_state["summary_data"]     = _loaded_summary
-                    st.session_state["out_sheet_id_run"] = _oid
-                    st.session_state["events_meta"]      = {
-                        str(_r.get(COL_NAME, "")).strip(): {
-                            "date":  str(_r.get(COL_DATE,  "")).strip(),
-                            "time":  str(_r.get(COL_TIME,  "")).strip(),
-                            "venue": str(_r.get(COL_VENUE, "")).strip(),
-                        }
-                        for _, _r in edited_df.iterrows()
-                        if str(_r.get(COL_NAME, "")).strip()
-                    }
-                    st.session_state["run_count"]  = _run_count + 1
-                    st.session_state["save_count"] = 0
-                    st.rerun()
-                except Exception as _e:
-                    st.error(f"โหลดไม่ได้: {_e}")
+            with st.spinner("⏳ กำลังโหลดรายชื่อจาก Sheet..."):
+                _load_err = _load_from_sheet(edited_df, output_url, _run_count)
+            if _load_err:
+                st.error(f"โหลดไม่ได้: {_load_err}")
+            else:
+                _list_results = st.session_state.get("all_results")
+                _list_emails  = st.session_state.get("all_emails", {})
+                _out_id_list  = st.session_state.get("out_sheet_id_run")
+                _run_count    = st.session_state.get("run_count", 0)
+                _save_count   = st.session_state.get("save_count", 0)
 
     # ── แสดงรายชื่อต่อเมื่อมีข้อมูล ──────────────────────────────────────────
     if _list_results:
