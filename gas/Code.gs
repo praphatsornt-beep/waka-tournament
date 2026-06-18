@@ -31,9 +31,14 @@ function doGet(e) {
     const catRows = catWs ? catWs.getDataRange().getValues() : [];
     const catalog = [];
     for (let i = 1; i < catRows.length; i++) {
-      const [name, price, category, active] = catRows[i];
+      const [name, price, category, active, imageUrl] = catRows[i];
       if (name && active !== false && active !== "FALSE" && active !== 0)
-        catalog.push({ name: String(name), price: Number(price) || 0, category: String(category || "") });
+        catalog.push({
+          name:     String(name),
+          price:    Number(price) || 0,
+          category: String(category || ""),
+          imageUrl: _driveUrl(String(imageUrl || "")),
+        });
     }
 
     const cfgRows = cfgWs ? cfgWs.getDataRange().getValues() : [];
@@ -225,4 +230,13 @@ function _genOrderId() {
   const now = new Date();
   const pad = n => String(n).padStart(2, "0");
   return `ORD${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${Math.floor(Math.random()*100)}`;
+}
+
+// แปลง Google Drive share URL → direct image URL
+// รองรับทั้ง /file/d/ID/view และ URL ตรงอื่นๆ
+function _driveUrl(url) {
+  if (!url) return "";
+  const m = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  if (m) return `https://drive.google.com/uc?export=view&id=${m[1]}`;
+  return url; // ถ้าเป็น URL ตรงอื่นให้ใช้ได้เลย
 }
