@@ -405,6 +405,17 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
     header, data_rows = rows[0], rows[1:]
     cols = detect_columns(header, FORM_COLUMN_KEYWORDS)
 
+    # Fallback: ถ้าหา slip_url ด้วย keyword ไม่ได้ ให้สแกนหาคอลัมน์ที่มีลิงก์ Drive
+    if "slip_url" not in cols and data_rows:
+        for col_i in range(len(header)):
+            for row in data_rows[:15]:
+                val = row[col_i] if col_i < len(row) else ""
+                if "drive.google.com" in val or ("docs.google.com" in val and "/file/" in val):
+                    cols["slip_url"] = col_i
+                    break
+            if "slip_url" in cols:
+                break
+
     # อ่านค่า "ตรวจสลิปแล้ว" ที่ admin กรอกไว้ก่อน clear
     manual_ok = {}  # game_name → note
     if output_sheet:
