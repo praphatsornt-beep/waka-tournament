@@ -959,49 +959,6 @@ with tab_settings:
             st.session_state["_config_source"] = "sheet"
             st.success("✅ บันทึกแล้ว — config เก็บใน Google Sheet tab `_config` และจะคงอยู่ทุก deploy")
 
-    st.divider()
-    st.subheader("📝 สร้าง Google Form")
-    _ev_names_cfg = [
-        str(r.get(COL_NAME, "")).strip()
-        for _, r in edited_df.iterrows()
-        if str(r.get(COL_NAME, "")).strip()
-    ]
-    if not _ev_names_cfg:
-        st.info("เพิ่มชื่อการแข่งขันในตารางด้านบนก่อน")
-    else:
-        _fc1, _fc2, _fc3 = st.columns([2, 1, 1])
-        _sel_ev = _fc1.selectbox("การแข่งขัน", _ev_names_cfg, key="form_create_ev")
-        _sel_row_cfg = next(
-            (r for _, r in edited_df.iterrows() if str(r.get(COL_NAME, "")).strip() == _sel_ev),
-            None,
-        )
-        _sel_fee_cfg = str(_sel_row_cfg.get(COL_FEE, "")).strip() if _sel_row_cfg is not None else ""
-        _fc2.text_input("ค่าสมัคร", value=_sel_fee_cfg, disabled=True, key="form_create_fee_disp")
-
-        if not _has_forms_scope():
-            st.warning(
-                "⚠️ Token ปัจจุบันไม่มีสิทธิ์สร้าง Form\n\n"
-                "วิธีแก้ (ทำบนเครื่องตัวเองครั้งเดียว):\n"
-                "1. ลบไฟล์ `token.json`\n"
-                "2. รัน `python -m streamlit run tools/verify_app.py`\n"
-                "3. เปิด browser แล้ว approve ให้ครบทั้ง Sheets และ Forms\n"
-                "4. ถ้าใช้ Streamlit Cloud: copy เนื้อหา token.json ใหม่ไปอัปเดต Secret `GOOGLE_TOKEN`"
-            )
-        elif _fc3.button("➕ สร้าง Form", key="btn_create_form"):
-            try:
-                with st.spinner("⏳ กำลังสร้าง Google Form..."):
-                    _form_result = create_google_form(_sel_ev, _sel_fee_cfg)
-                st.success("✅ สร้าง Form แล้ว!")
-                st.markdown(f"**ลิงก์แชร์ให้ผู้สมัคร:**  \n{_form_result['form_url']}")
-                st.markdown(f"**ลิงก์แก้ไข Form:**  \n{_form_result['edit_url']}")
-                st.info(
-                    "📋 ขั้นตอนต่อไป:\n"
-                    "1. เปิดลิงก์แก้ไขด้านบน → Responses → **Link to Sheets** → สร้าง Sheet ใหม่\n"
-                    "2. copy URL ของ Sheet นั้น → วางในคอลัมน์ **ลิงค์ Form Responses** ด้านบน\n"
-                    "3. กด 💾 บันทึกการตั้งค่า"
-                )
-            except Exception as _fe:
-                st.error(f"สร้างไม่ได้: {_fe}")
 
 # ─── Tab: ตรวจสลิป ───────────────────────────────────────────────────────────
 with tab_verify:
