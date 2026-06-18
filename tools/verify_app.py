@@ -137,14 +137,18 @@ def load_config() -> dict:
             ws  = get_gc().open_by_key(sid).worksheet(CONFIG_SHEET_TAB)
             raw = ws.cell(1, 1).value
             if raw:
+                st.session_state["_config_source"] = "sheet"
                 return json.loads(raw)
-        except Exception:
-            pass
+        except Exception as _e:
+            st.session_state["_config_source"] = f"sheet_err:{_e}"
     if CONFIG_PATH.exists():
         try:
-            return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+            data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+            st.session_state["_config_source"] = "local"
+            return data
         except Exception:
             pass
+    st.session_state["_config_source"] = "default"
     return {"events": DEFAULT_EVENTS, "output_sheet_url": bootstrap_url or DEFAULT_OUTPUT_URL}
 
 def save_config(events_records: list, output_url: str) -> str | None:
@@ -937,20 +941,23 @@ with tab_settings:
         value=config.get("output_sheet_url", ""),
         placeholder="https://docs.google.com/spreadsheets/d/...",
     )
-    with st.expander("ℹ️ วิธีให้ config คงอยู่บน Streamlit Cloud"):
-        st.markdown(
-            "เพิ่ม Secret ชื่อ `OUTPUT_SHEET_URL` ใน Streamlit Cloud dashboard "
-            "(Settings → Secrets) แล้วใส่ URL ของ Output Sheet\n\n"
-            "```toml\nOUTPUT_SHEET_URL = \"https://docs.google.com/spreadsheets/d/...\"\n```\n\n"
-            "เมื่อตั้งค่าแล้ว กด 💾 บันทึกการตั้งค่า ครั้งเดียว — config จะถูกเก็บใน tab `_config` "
-            "ของ Sheet นั้น และโหลดขึ้นมาอัตโนมัติทุกครั้งแม้ deploy ใหม่"
-        )
+    _cfg_src = st.session_state.get("_config_source", "default")
+    if _cfg_src == "sheet":
+        st.success("✅ config โหลดจาก Google Sheet — คงอยู่แม้ deploy ใหม่")
+    elif _cfg_src == "local":
+        st.info("ℹ️ config โหลดจากไฟล์ local — กด 💾 เพื่อบันทึกลง Google Sheet ด้วย")
+    elif str(_cfg_src).startswith("sheet_err"):
+        st.warning(f"⚠️ โหลดจาก Sheet ไม่ได้ ({_cfg_src.split(':', 1)[-1]}) — ใช้ค่า default")
+    else:
+        st.warning("⚠️ ใช้ค่า default — กด 💾 บันทึกการตั้งค่า เพื่อเก็บ config ไว้ใน Google Sheet")
+
     if st.button("💾 บันทึกการตั้งค่า"):
         err = save_config(edited_df.to_dict("records"), output_url)
         if err:
             st.warning(f"บันทึกลงไฟล์ local แล้ว แต่บันทึกลง Google Sheet ไม่ได้: {err}")
         else:
-            st.success("✅ บันทึกแล้ว — config เก็บใน Google Sheet tab `_config` และไฟล์ local")
+            st.session_state["_config_source"] = "sheet"
+            st.success("✅ บันทึกแล้ว — config เก็บใน Google Sheet tab `_config` และจะคงอยู่ทุก deploy")
 
     st.divider()
     st.subheader("📝 สร้าง Google Form")
