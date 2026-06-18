@@ -773,22 +773,31 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
 
 # ── Email sending ─────────────────────────────────────────────────────────────
 
-def send_confirmation_email(
-    to_email: str, ev_name: str, game_name: str, order_num: int,
+def _email_html(
+    ev_name: str, game_name: str, order_num: int,
     event_date: str = "", event_time: str = "", event_venue: str = "",
-) -> None:
+    preview: bool = False,
+) -> tuple[str, bytes | None]:
+    """สร้าง HTML body + qr_bytes สำหรับอีเมลยืนยัน
+    preview=True  → QR เป็น data URI (แสดงใน browser)
+    preview=False → QR เป็น cid:qrcode (แนบใน email client)
+    """
     date_row  = f'<tr><td style="padding:4px 20px 4px 0;color:#555">วันแข่งขัน</td><td><strong>{event_date}</strong></td></tr>'  if event_date  else ""
     time_row  = f'<tr><td style="padding:4px 20px 4px 0;color:#555">เวลานัด</td><td><strong>{event_time}</strong></td></tr>'     if event_time  else ""
     venue_row = f'<tr><td style="padding:4px 20px 4px 0;color:#555">สถานที่</td><td><strong>{event_venue}</strong></td></tr>'    if event_venue else ""
     qr_data  = f"WAKA|{ev_name}|{game_name}|{order_num}"
     qr_b64   = generate_qr_b64(qr_data)
     qr_bytes = base64.b64decode(qr_b64) if qr_b64 else None
-    qr_block = (
-        '<div style="text-align:center;margin:20px 0">'
-        '<p style="color:#555;font-size:13px;margin-bottom:8px">แสดง QR นี้ให้เจ้าหน้าที่สแกนเพื่อเช็คอินเข้างาน</p>'
-        '<img src="cid:qrcode" width="160" height="160" style="border:1px solid #ddd;padding:4px"/>'
-        '</div>'
-    ) if qr_bytes else ""
+    if qr_bytes:
+        qr_src   = f"data:image/png;base64,{qr_b64}" if preview else "cid:qrcode"
+        qr_block = (
+            '<div style="text-align:center;margin:20px 0">'
+            '<p style="color:#555;font-size:13px;margin-bottom:8px">แสดง QR นี้ให้เจ้าหน้าที่สแกนเพื่อเช็คอินเข้างาน</p>'
+            f'<img src="{qr_src}" width="160" height="160" style="border:1px solid #ddd;padding:4px"/>'
+            '</div>'
+        )
+    else:
+        qr_block = ""
     body = f"""
 <div style="font-family:sans-serif;max-width:520px;padding:16px;color:#222">
   <h2 style="color:#1a73e8">🎮 ยืนยันการเข้าแข่งขัน {ev_name}</h2>
@@ -807,7 +816,14 @@ def send_confirmation_email(
   <p style="margin-top:24px;color:#888;font-size:13px">— ทีม WAKA Tournament</p>
 </div>
 """
-    # ใช้ multipart/related เพื่อแนบรูป QR แบบ inline (email client ทุกตัวรองรับ)
+    return body, qr_bytes
+
+
+def send_confirmation_email(
+    to_email: str, ev_name: str, game_name: str, order_num: int,
+    event_date: str = "", event_time: str = "", event_venue: str = "",
+) -> None:
+    body, qr_bytes = _email_html(ev_name, game_name, order_num, event_date, event_time, event_venue, preview=False)
     outer = MIMEMultipart("related")
     outer["Subject"] = f"[WAKA] ยืนยันการเข้าแข่งขัน {ev_name}"
     outer["From"]    = GMAIL_ADDRESS
@@ -1469,6 +1485,28 @@ with tab_list:
                             st.divider()
                             with_email = [(n, name, em) for n, name, em in recipients if em]
                             already    = sum(1 for _, name, _ in with_email if name in sent_set)
+
+                            # ── Preview ───────────────────────────────────────
+                            with st.expander("🔍 ดูตัวอย่างอีเมล", expanded=False):
+                                _prev_names = [name for _, name, _ in with_email]
+                                if _prev_names:
+                                    _prev_sel = st.selectbox(
+                                        "ดูตัวอย่างสำหรับ",
+                                        _prev_names,
+                                        key=f"prev_sel_{ev_name}_{run_count}",
+                                    )
+                                    _prev_n = next((n for n, name, _ in with_email if name == _prev_sel), 1)
+                                    _prev_html, _ = _email_html(
+                                        ev_name, _prev_sel, _prev_n,
+                                        event_date, event_time, event_venue,
+                                        preview=True,
+                                    )
+                                    st.components.v1.html(
+                                        f"<html><body style='margin:0'>{_prev_html}</body></html>",
+                                        height=420, scrolling=True,
+                                    )
+
+                            # ── รายชื่อผู้รับ ─────────────────────────────────
                             check_all  = st.checkbox(
                                 "เลือกทั้งหมด",
                                 value=True,
@@ -1480,7 +1518,7 @@ with tab_list:
                                     "#":              n,
                                     "ชื่อที่ใช้แข่ง": name,
                                     "อีเมล":          em,
-                                    "":               "ส่งแล้ว ✓" if name in sent_set else "",
+                                    "📧 สถานะ":       "ส่งแล้ว ✓" if name in sent_set else "ยังไม่ส่ง",
                                 }
                                 for n, name, em in with_email
                             ])
@@ -1492,9 +1530,9 @@ with tab_list:
                                     "#":              st.column_config.NumberColumn("#", width="small"),
                                     "ชื่อที่ใช้แข่ง": st.column_config.TextColumn("ชื่อที่ใช้แข่ง"),
                                     "อีเมล":          st.column_config.TextColumn("อีเมล"),
-                                    "":               st.column_config.TextColumn("", width="small"),
+                                    "📧 สถานะ":       st.column_config.TextColumn("📧 สถานะ", width="small"),
                                 },
-                                disabled=["#", "ชื่อที่ใช้แข่ง", "อีเมล", ""],
+                                disabled=["#", "ชื่อที่ใช้แข่ง", "อีเมล", "📧 สถานะ"],
                                 hide_index=True,
                                 use_container_width=True,
                             )
@@ -1502,7 +1540,7 @@ with tab_list:
                                 (int(row["#"]), row["ชื่อที่ใช้แข่ง"], row["อีเมล"])
                                 for _, row in edited_r.iterrows() if row["ส่ง"]
                             ]
-                            st.caption(f"เลือก **{len(selected)}** คน | ส่งแล้ว {already} คน")
+                            st.caption(f"เลือก **{len(selected)}** คน | ส่งแล้ว {already}/{len(with_email)} คน")
                             if selected:
                                 if st.button(
                                     f"📧 ส่งอีเมล {len(selected)} คน",
