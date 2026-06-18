@@ -6,6 +6,7 @@ WAKA Tournament — Payment Verification Web App
 
 import base64
 import csv
+from datetime import date as _date_cls
 import io
 import json
 import os
@@ -392,6 +393,21 @@ def find_matching_txn(transfer_name, facebook_name, expected_fees, bank_rows, us
             return txn, "✅", f"ยืนยันแล้ว | โอน {txn['amount']:.0f}฿ | {txn['sender']}"
     return None, "❌", ""
 
+
+def parse_txn_date(date_str: str) -> "_date_cls | None":
+    """DD/MM/YYYY[...] ปี พ.ศ. → CE date  (2569 → 2026)  หรือ None ถ้า parse ไม่ได้"""
+    if not date_str:
+        return None
+    try:
+        d = date_str.strip().split()[0]
+        day, month, year = d.split("/")
+        year_ce = int(year) - 543
+        if year_ce < 2000:      # อาจเป็น ค.ศ. อยู่แล้ว เช่น 2026
+            year_ce = int(year)
+        return _date_cls(year_ce, int(month), int(day))
+    except Exception:
+        return None
+
 def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
     name          = event["name"]
     expected_fees = event["fee"] if isinstance(event["fee"], list) else [float(event["fee"])]
@@ -446,10 +462,22 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
             parsed.append((seq, game_name, cell("openchat_name"), cell("facebook"),
                            cell("transfer_name"), cell("slip_url"), cell("email")))
 
+    # กรอง bank_rows เฉพาะ transaction ไม่เก่ากว่า 3 วัน นับจาก transaction ล่าสุดใน statement
+    _txn_dates = [parse_txn_date(t["date"]) for t in bank_rows]
+    _ref_date  = max((d for d in _txn_dates if d), default=None)
+    MAX_TXN_AGE_DAYS = 3
+    if _ref_date:
+        recent_bank_rows = [
+            t for t in bank_rows
+            if (lambda d: d is None or (_ref_date - d).days <= MAX_TXN_AGE_DAYS)(parse_txn_date(t["date"]))
+        ]
+    else:
+        recent_bank_rows = bank_rows
+
     # Pass 1: lock ✅ (ชื่อ + ยอดตรง)
     exact_matches, txn_to_owner = {}, {}
     for seq, game_name, oc, fb, tr, slip, email_addr in parsed:
-        txn, status, detail = find_matching_txn(tr, fb, expected_fees, bank_rows, used_txn_ids)
+        txn, status, detail = find_matching_txn(tr, fb, expected_fees, recent_bank_rows, used_txn_ids)
         if status == "✅" and txn:
             used_txn_ids.add(txn["txn_id"])
             txn_to_owner[txn["txn_id"]] = game_name
@@ -461,7 +489,7 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
         if seq in exact_matches:
             continue
         match_name = tr if tr else fb
-        for txn in bank_rows:
+        for txn in recent_bank_rows:
             if txn["txn_id"] and txn["txn_id"] in used_txn_ids:
                 continue
             if any(abs(txn["amount"] - f) < 1.0 for f in expected_fees):
@@ -487,7 +515,7 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
         n_match = normalize(match_name)
         if not n_match:
             continue
-        for txn in bank_rows:
+        for txn in recent_bank_rows:
             if txn["txn_id"] and txn["txn_id"] in used_txn_ids:
                 continue
             n_sender = normalize(txn["sender"])
@@ -513,7 +541,7 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
             match_name = tr if tr else fb
             fees_str   = "/".join(f"{f:.0f}" for f in expected_fees)
             best_txn, best_sim = None, 0.0
-            for t in bank_rows:
+            for t in recent_bank_rows:
                 if any(abs(t["amount"] - f) < 1.0 for f in expected_fees):
                     s = name_similarity(match_name, t["sender"])
                     if s > best_sim:
