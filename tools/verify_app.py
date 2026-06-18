@@ -477,6 +477,27 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
         used_txn_ids.add(txn["txn_id"])
         txn_to_owner[txn["txn_id"]] = gname
 
+    # Pass 3: ⚠️ ยอดไม่ตรง — ชื่อตรงแต่ยอดต่างจากค่าสมัคร (เช่น โอน 1000 แต่ fee 500)
+    amount_mismatch = {}
+    for seq, game_name, oc, fb, tr, slip, email_addr in parsed:
+        if seq in exact_matches or seq in warn_matches:
+            continue
+        match_name = tr if tr else fb
+        n_match = normalize(match_name)
+        if not n_match:
+            continue
+        for txn in bank_rows:
+            if txn["txn_id"] and txn["txn_id"] in used_txn_ids:
+                continue
+            n_sender = normalize(txn["sender"])
+            if n_sender and (n_match in n_sender or n_sender in n_match):
+                fees_str = "/".join(f"{f:.0f}" for f in expected_fees)
+                detail = f"ยอดไม่ตรง | พบ {txn['amount']:.0f}฿ (คาดยอด {fees_str}฿)"
+                amount_mismatch[seq] = (txn, "⚠️", detail)
+                used_txn_ids.add(txn["txn_id"])
+                txn_to_owner[txn["txn_id"]] = game_name
+                break
+
     # Compile
     results = []
     emails  = {}  # game_name → email address
@@ -485,6 +506,8 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
             txn, status, detail = exact_matches[seq]
         elif seq in warn_matches:
             txn, status, detail = warn_matches[seq]
+        elif seq in amount_mismatch:
+            txn, status, detail = amount_mismatch[seq]
         else:
             match_name = tr if tr else fb
             fees_str   = "/".join(f"{f:.0f}" for f in expected_fees)
