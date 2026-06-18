@@ -483,10 +483,11 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
             txn_to_owner[txn["txn_id"]] = game_name
             exact_matches[seq] = (txn, status, detail)
 
-    # Pass 2: ⚠️ โดยเรียงความคล้ายชื่อ
+    # Pass 2: ⚠️ โดยเรียงความคล้ายชื่อ (ต้องคล้ายกัน >= 30% จึง match)
+    MIN_PASS2_SIM = 0.3
     candidates = []
     for seq, game_name, oc, fb, tr, slip, email_addr in parsed:
-        if seq in exact_matches:
+        if seq in exact_matches or game_name in manual_ok:
             continue
         match_name = tr if tr else fb
         for txn in recent_bank_rows:
@@ -494,7 +495,8 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
                 continue
             if any(abs(txn["amount"] - f) < 1.0 for f in expected_fees):
                 sim = name_similarity(match_name, txn["sender"])
-                candidates.append((sim, seq, game_name, match_name, txn))
+                if sim >= MIN_PASS2_SIM:
+                    candidates.append((sim, seq, game_name, match_name, txn))
 
     candidates.sort(key=lambda x: -x[0])
     warn_matches = {}
@@ -509,7 +511,7 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
     # Pass 3: ⚠️ ยอดไม่ตรง — ชื่อตรงแต่ยอดต่างจากค่าสมัคร (เช่น โอน 1000 แต่ fee 500)
     amount_mismatch = {}
     for seq, game_name, oc, fb, tr, slip, email_addr in parsed:
-        if seq in exact_matches or seq in warn_matches:
+        if seq in exact_matches or seq in warn_matches or game_name in manual_ok:
             continue
         match_name = tr if tr else fb
         n_match = normalize(match_name)
@@ -557,9 +559,14 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
 
         # ถ้า admin ตรวจสลิปแล้ว → เปลี่ยนสถานะเป็น ✅
         override = manual_ok.get(game_name, "")
-        if override and status == "⚠️":
+        if override:
             status = "✅"
-            detail = f"ตรวจสลิปแล้ว | {detail}"
+            if seq not in exact_matches:
+                # ล้าง bank transaction ที่อาจ match ผิดคน
+                detail = f"ตรวจสลิปแล้ว (admin)"
+                txn = None
+            else:
+                detail = f"ตรวจสลิปแล้ว | {detail}"
 
         display_name = (
             txn["sender"] if status in ("✅", "🚫") and txn
