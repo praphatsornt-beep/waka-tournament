@@ -1192,11 +1192,6 @@ with tab_verify:
 
                 # ── Tab 2: ตรวจสลิป ───────────────────────────────────────────────
                 with tab_s:
-                    with st.expander("🐛 debug", expanded=True):
-                        for _di, _dr in df[["#", "ชื่อที่ใช้แข่ง", "สถานะ"]].iterrows():
-                            _s = _dr["สถานะ"]
-                            _match = str(_s) in ["⚠️", "❌", "🚫"]
-                            st.text(f"#{_dr['#']} {_dr['ชื่อที่ใช้แข่ง']}: {repr(_s)} match={_match}")
                     # แสดง ⚠️ / ❌ / 🚫 ทุกแถว — ใช้ str.contains เพื่อรองรับ Unicode variation
                     _status_str = df["สถานะ"].astype(str)
                     _needs_review = (
