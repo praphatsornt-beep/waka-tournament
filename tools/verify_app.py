@@ -996,6 +996,9 @@ with tab_verify:
             df        = pd.DataFrame(results, columns=OUTPUT_HEADER)
             confirmed = sum(1 for r in results if r[5] == "✅")
             warned    = (df["สถานะ"] == "⚠️").sum()
+            need_review = warned + (
+                (df["สถานะ"] == "❌") & (df["ลิงค์สลิป"].str.strip() != "")
+            ).sum()
 
             confirmed_df = df[df["สถานะ"] == "✅"].sort_values("#").reset_index(drop=True)
 
@@ -1004,7 +1007,7 @@ with tab_verify:
                 + (f" | ⚠️ {warned}" if warned else ""),
                 expanded=True,
             ):
-                slip_label    = f"⚠️ ตรวจสลิป ({warned})" if warned else "⚠️ ตรวจสลิป"
+                slip_label    = f"⚠️ ตรวจสลิป ({need_review})" if need_review else "⚠️ ตรวจสลิป"
                 tab_r, tab_s = st.tabs(["📊 ผลการตรวจ", slip_label])
 
                 # ── Tab 1: ผลการตรวจ ──────────────────────────────────────────────
@@ -1017,7 +1020,11 @@ with tab_verify:
 
                 # ── Tab 2: ตรวจสลิป ───────────────────────────────────────────────
                 with tab_s:
-                    warn_df = df.loc[df["สถานะ"] == "⚠️",
+                    # แสดง ⚠️ ทุกแถว + ❌ ที่มีลิงก์สลิป (โอนผ่านธนาคารอื่น ระบบหาไม่เจอ)
+                    _needs_review = (df["สถานะ"] == "⚠️") | (
+                        (df["สถานะ"] == "❌") & (df["ลิงค์สลิป"].str.strip() != "")
+                    )
+                    warn_df = df.loc[_needs_review,
                                      ["#", "ชื่อที่ใช้แข่ง", "ชื่อบัญชีที่โอน", "รายละเอียด",
                                       "ลิงค์สลิป", "ตรวจสลิปแล้ว"]].copy()
                     if warn_df.empty:
