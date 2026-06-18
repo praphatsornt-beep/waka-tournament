@@ -75,7 +75,8 @@ SCOPES           = [
 TOKEN_PATH       = Path("token.json")
 CREDS_PATH       = Path("credentials.json")
 CONFIG_PATH      = Path("events_config.json")
-CONFIG_SHEET_TAB = "_config"
+CONFIG_SHEET_TAB  = "_config"
+USED_TXNS_TAB     = "_used_txns"
 
 COL_NAME       = "ชื่อการแข่งขัน"
 COL_URL        = "ลิงค์ Form Responses"
@@ -110,6 +111,48 @@ DEFAULT_EVENTS = [
     {COL_NAME: "BOT",               COL_URL: "https://docs.google.com/spreadsheets/d/1K7AFCxOOPzw-kp0kzUf07d-96dCsKnHjkYbIemzxeDM/edit#gid=2054056416", COL_FEE: "250",     COL_DATE: "", COL_TIME: "", COL_VENUE: ""},
 ]
 DEFAULT_OUTPUT_URL = "https://docs.google.com/spreadsheets/d/1WSfd9sKHl2H5O7Ai1DvqVaL7Tuwni-nfBc-hTX8HilA"
+
+# ── Cross-run slip deduplication ──────────────────────────────────────────────
+
+def _load_used_txns(output_sheet) -> set:
+    """โหลด txn_id ที่เคย match แล้วจาก Sheet tab _used_txns"""
+    if output_sheet is None:
+        return set()
+    try:
+        ws   = output_sheet.worksheet(USED_TXNS_TAB)
+        rows = _retry_429(ws.get_all_values)
+        return {r[0] for r in rows if r and r[0] and r[0] != "txn_id"}
+    except gspread.WorksheetNotFound:
+        return set()
+    except Exception:
+        return set()
+
+def _save_new_txns(output_sheet, all_results: dict, known_txn_ids: set) -> None:
+    """บันทึก txn_id ใหม่ที่เพิ่งถูก match ลง Sheet tab _used_txns (append-only)"""
+    if output_sheet is None:
+        return
+    from datetime import datetime
+    today    = datetime.now().strftime("%Y-%m-%d")
+    new_rows = []
+    seen     = set(known_txn_ids)
+    for ev_name, results in all_results.items():
+        for row in results:
+            txn_id    = row[9] if len(row) > 9 else ""
+            game_name = row[1] if len(row) > 1 else ""
+            if txn_id and txn_id not in seen:
+                new_rows.append([txn_id, game_name, ev_name, today])
+                seen.add(txn_id)
+    if not new_rows:
+        return
+    try:
+        try:
+            ws = output_sheet.worksheet(USED_TXNS_TAB)
+        except gspread.WorksheetNotFound:
+            ws = output_sheet.add_worksheet(title=USED_TXNS_TAB, rows=1000, cols=4)
+            ws.append_row(["txn_id", "ชื่อที่ใช้แข่ง", "การแข่งขัน", "วันที่บันทึก"])
+        ws.append_rows(new_rows)
+    except Exception:
+        pass
 
 # ── Config helpers ─────────────────────────────────────────────────────────────
 
@@ -1054,7 +1097,8 @@ with tab_verify:
                 st.warning(f"เปิด Output Sheet ไม่ได้: {e} — จะแสดงเฉพาะในหน้านี้")
 
         # Process all events
-        used_txn_ids = set()
+        persistent_txn_ids = _load_used_txns(output_sheet)
+        used_txn_ids = set(persistent_txn_ids)
         summary      = []
         all_results  = {}
         all_emails   = {}
@@ -1102,6 +1146,9 @@ with tab_verify:
         }
         st.session_state["run_count"]        = st.session_state.get("run_count", 0) + 1
         st.session_state["save_count"]       = 0
+
+        # บันทึก txn_id ที่ match ในรอบนี้สำหรับตรวจซ้ำข้ามรอบ
+        _save_new_txns(output_sheet, all_results, persistent_txn_ids)
 
     # ── Display results (runs whenever session state has data) ────────────────────
     if "all_results" in st.session_state:
