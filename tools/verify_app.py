@@ -259,6 +259,19 @@ def _has_forms_scope() -> bool:
             return False
     return False
 
+# ── Sheets retry helper ────────────────────────────────────────────────────────
+
+def _retry_429(fn):
+    """เรียก fn() อีกครั้งถ้าเจอ 429 — รอ 15/30 วิ แล้ว retry สูงสุด 3 ครั้ง"""
+    for attempt in range(3):
+        try:
+            return fn()
+        except Exception as e:
+            if "429" in str(e) and attempt < 2:
+                time.sleep(15 * (2 ** attempt))  # 15s, 30s
+            else:
+                raise
+
 # ── Google Forms creation ──────────────────────────────────────────────────────
 
 def create_google_form(event_name: str, fee_str: str) -> dict:
@@ -522,7 +535,7 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
 
     src_sh = gc.open_by_key(event["source_sheet_id"])
     src_ws = src_sh.get_worksheet_by_id(event["gid"]) if "gid" in event else src_sh.sheet1
-    rows   = src_ws.get_all_values()
+    rows   = _retry_429(src_ws.get_all_values)
 
     if len(rows) < 2:
         return [], 0, 0, 0, 0
@@ -546,7 +559,7 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
     if output_sheet:
         try:
             ws_prev = output_sheet.worksheet(name)
-            prev    = ws_prev.get_all_values()
+            prev    = _retry_429(ws_prev.get_all_values)
             if len(prev) > 1:
                 hdr   = prev[0]
                 oc_i  = next((i for i, h in enumerate(hdr) if h == "ตรวจสลิปแล้ว"), None)
@@ -780,7 +793,7 @@ def _sync_checkin_sheet(out_sheet_id: str, ev_name: str, confirmed_df, ci_state:
             [i, r["ชื่อที่ใช้แข่ง"], "", ""]
             for i, (_, r) in enumerate(confirmed_df.iterrows(), 1)
         ])
-    reg_rows = ws_reg.get_all_values()
+    reg_rows = _retry_429(ws_reg.get_all_values)
     if len(reg_rows) < 2:
         return
     hdr    = reg_rows[0]
@@ -823,7 +836,7 @@ def _load_from_sheet(edited_df, output_url: str, run_count: int) -> str | None:
                 continue
             try:
                 _ws   = _sht.worksheet(_en)
-                _rows = _ws.get_all_values()
+                _rows = _retry_429(_ws.get_all_values)
                 _loaded_results[_en] = _rows[1:] if len(_rows) > 1 else []
             except gspread.WorksheetNotFound:
                 _loaded_results[_en] = []
@@ -833,7 +846,7 @@ def _load_from_sheet(edited_df, output_url: str, run_count: int) -> str | None:
                     _sid, _gid = parse_sheet_url(_eu)
                     _src = _gc.open_by_key(_sid)
                     _sw  = _src.get_worksheet_by_id(_gid) if _gid is not None else _src.sheet1
-                    _sr  = _sw.get_all_values()
+                    _sr  = _retry_429(_sw.get_all_values)
                     if len(_sr) > 1:
                         _sc = detect_columns(_sr[0], FORM_COLUMN_KEYWORDS)
                         for _r in _sr[1:]:
@@ -1362,7 +1375,7 @@ with tab_list:
                                 _ws_t    = f"ลงทะเบียน — {ev_name}"
                                 try:
                                     _ws_w    = _sht_w.worksheet(_ws_t)
-                                    _exist   = _ws_w.get_all_values()
+                                    _exist   = _retry_429(_ws_w.get_all_values)
                                     _next_n  = len(_exist)  # header + n rows → next = n+1 = len
                                 except gspread.WorksheetNotFound:
                                     _ws_w = _sht_w.add_worksheet(title=_ws_t, rows=200, cols=4)
@@ -1501,7 +1514,7 @@ with tab_list:
                                     _gc    = get_gc()
                                     _sheet = _gc.open_by_key(out_sheet_id)
                                     ws_reg = _sheet.worksheet(f"ลงทะเบียน — {ev_name}")
-                                    reg_rows = ws_reg.get_all_values()
+                                    reg_rows = _retry_429(ws_reg.get_all_values)
                                     if len(reg_rows) > 1:
                                         hdr     = reg_rows[0]
                                         n_idx   = next((i for i, h in enumerate(hdr) if h == "ชื่อที่ใช้แข่ง"), 1)
