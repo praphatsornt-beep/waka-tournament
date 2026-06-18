@@ -837,7 +837,12 @@ def _load_from_sheet(edited_df, output_url: str, run_count: int) -> str | None:
             try:
                 _ws   = _sht.worksheet(_en)
                 _rows = _retry_429(_ws.get_all_values)
-                _loaded_results[_en] = _rows[1:] if len(_rows) > 1 else []
+                _padded = [
+                    r + [""] * (len(OUTPUT_HEADER) - len(r))
+                    if len(r) < len(OUTPUT_HEADER) else r
+                    for r in (_rows[1:] if len(_rows) > 1 else [])
+                ]
+                _loaded_results[_en] = _padded
             except gspread.WorksheetNotFound:
                 _loaded_results[_en] = []
             _em: dict[str, str] = {}
@@ -1159,8 +1164,13 @@ with tab_verify:
                 continue
             df        = pd.DataFrame(results, columns=OUTPUT_HEADER)
             confirmed = sum(1 for r in results if r[5] == "✅")
-            warned    = (df["สถานะ"] == "⚠️").sum()
-            need_review = warned + (df["สถานะ"] == "❌").sum()
+            _s_str    = df["สถานะ"].astype(str)
+            warned      = _s_str.str.contains("⚠", na=False, regex=False).sum()
+            need_review = (
+                _s_str.str.contains("⚠", na=False, regex=False)
+                | _s_str.str.contains("❌", na=False, regex=False)
+                | _s_str.str.contains("🚫", na=False, regex=False)
+            ).sum()
 
             confirmed_df = df[df["สถานะ"] == "✅"].sort_values("#").reset_index(drop=True)
 
@@ -1182,8 +1192,18 @@ with tab_verify:
 
                 # ── Tab 2: ตรวจสลิป ───────────────────────────────────────────────
                 with tab_s:
-                    # แสดง ⚠️ ทุกแถว + ❌ ทุกแถว (admin ตัดสินใจเองว่าจะ approve หรือไม่)
-                    _needs_review = (df["สถานะ"] == "⚠️") | (df["สถานะ"] == "❌")
+                    with st.expander("🐛 debug", expanded=True):
+                        for _di, _dr in df[["#", "ชื่อที่ใช้แข่ง", "สถานะ"]].iterrows():
+                            _s = _dr["สถานะ"]
+                            _match = str(_s) in ["⚠️", "❌", "🚫"]
+                            st.text(f"#{_dr['#']} {_dr['ชื่อที่ใช้แข่ง']}: {repr(_s)} match={_match}")
+                    # แสดง ⚠️ / ❌ / 🚫 ทุกแถว — ใช้ str.contains เพื่อรองรับ Unicode variation
+                    _status_str = df["สถานะ"].astype(str)
+                    _needs_review = (
+                        _status_str.str.contains("⚠", na=False, regex=False)
+                        | _status_str.str.contains("❌", na=False, regex=False)
+                        | _status_str.str.contains("🚫", na=False, regex=False)
+                    )
                     warn_df = df.loc[_needs_review,
                                      ["#", "ชื่อที่ใช้แข่ง", "ชื่อบัญชีที่โอน", "รายละเอียด",
                                       "ลิงค์สลิป", "ตรวจสลิปแล้ว"]].copy()
@@ -1214,7 +1234,7 @@ with tab_verify:
                                 if not mask.any():
                                     continue
                                 updated_df.loc[mask, "ตรวจสลิปแล้ว"] = override
-                                if override and updated_df.loc[mask, "สถานะ"].values[0] == "⚠️":
+                                if override and updated_df.loc[mask, "สถานะ"].values[0] in ("⚠️", "❌", "🚫"):
                                     updated_df.loc[mask, "สถานะ"]      = "✅"
                                     updated_df.loc[mask, "รายละเอียด"] = (
                                         "ตรวจสลิปแล้ว | " + updated_df.loc[mask, "รายละเอียด"].values[0]
