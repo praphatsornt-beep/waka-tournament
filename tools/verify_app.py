@@ -74,7 +74,7 @@ CONFIG_SHEET_TAB = "_config"
 
 COL_NAME       = "ชื่อการแข่งขัน"
 COL_URL        = "ลิงค์ Form Responses"
-COL_FEE        = "ค่าสมัคร ล่วงหน้า (฿)"
+COL_FEE        = "ค่าสมัคร (฿)"
 COL_WALKIN_FEE = "ค่าสมัคร หน้างาน (฿)"
 COL_DATE       = "วันแข่งขัน"
 COL_TIME       = "เวลานัด"
@@ -691,7 +691,7 @@ with tab_settings:
         column_config={
             COL_NAME:       st.column_config.TextColumn(COL_NAME,       width="medium"),
             COL_URL:        st.column_config.TextColumn(COL_URL,        width="large"),
-            COL_FEE:        st.column_config.TextColumn(COL_FEE,        width="small", help="ค่าสมัครล่วงหน้า หลายค่าคั่นด้วย , เช่น 500,900"),
+            COL_FEE:        st.column_config.TextColumn(COL_FEE,        width="small", help="ล่วงหน้า — หลายค่าคั่นด้วย , เช่น 500,900"),
             COL_WALKIN_FEE: st.column_config.TextColumn(COL_WALKIN_FEE, width="small", help="ค่าสมัครวันงาน (ถ้าต่างจากล่วงหน้า)"),
             COL_DATE:       st.column_config.TextColumn(COL_DATE,       width="small", help="เช่น 28 มิ.ย. 69"),
             COL_TIME:       st.column_config.TextColumn(COL_TIME,       width="small", help="เช่น 10:00 น."),
