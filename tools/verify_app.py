@@ -72,12 +72,13 @@ CREDS_PATH       = Path("credentials.json")
 CONFIG_PATH      = Path("events_config.json")
 CONFIG_SHEET_TAB = "_config"
 
-COL_NAME = "ชื่อการแข่งขัน"
-COL_URL  = "ลิงค์ Form Responses"
-COL_FEE  = "ค่าสมัคร (฿)"
-COL_DATE  = "วันแข่งขัน"
-COL_TIME  = "เวลานัด"
-COL_VENUE = "สถานที่"
+COL_NAME       = "ชื่อการแข่งขัน"
+COL_URL        = "ลิงค์ Form Responses"
+COL_FEE        = "ค่าสมัคร ล่วงหน้า (฿)"
+COL_WALKIN_FEE = "ค่าสมัคร หน้างาน (฿)"
+COL_DATE       = "วันแข่งขัน"
+COL_TIME       = "เวลานัด"
+COL_VENUE      = "สถานที่"
 
 FORM_COLUMN_KEYWORDS = {
     "game_name":     ["in game name", "ingame", "แข่งในวงการ", "ชื่อแข่ง", "trainer id", "openchat"],
@@ -672,7 +673,7 @@ config = load_config()
 # เตรียม DataFrame ก่อน tabs (ใช้ร่วมกันทั้งสอง tab)
 saved_events = config.get("events") or DEFAULT_EVENTS
 events_df    = pd.DataFrame(saved_events)
-for col in [COL_NAME, COL_URL, COL_FEE, COL_DATE, COL_TIME, COL_VENUE]:
+for col in [COL_NAME, COL_URL, COL_FEE, COL_WALKIN_FEE, COL_DATE, COL_TIME, COL_VENUE]:
     if col not in events_df.columns:
         events_df[col] = ""
 
@@ -683,17 +684,18 @@ with tab_settings:
     st.subheader("📋 การแข่งขัน")
     st.caption("เพิ่ม/แก้ไขแถว ได้เลย | ค่าสมัครหลายค่าคั่นด้วยคอมมา เช่น `500,900`")
     edited_df = st.data_editor(
-        events_df[[COL_NAME, COL_URL, COL_FEE, COL_DATE, COL_TIME, COL_VENUE]],
+        events_df[[COL_NAME, COL_URL, COL_FEE, COL_WALKIN_FEE, COL_DATE, COL_TIME, COL_VENUE]],
         num_rows="dynamic",
         use_container_width=True,
         hide_index=True,
         column_config={
-            COL_NAME:  st.column_config.TextColumn(COL_NAME,  width="medium"),
-            COL_URL:   st.column_config.TextColumn(COL_URL,   width="large"),
-            COL_FEE:   st.column_config.TextColumn(COL_FEE,   width="small"),
-            COL_DATE:  st.column_config.TextColumn(COL_DATE,  width="small", help="เช่น 28 มิ.ย. 69"),
-            COL_TIME:  st.column_config.TextColumn(COL_TIME,  width="small", help="เช่น 10:00 น."),
-            COL_VENUE: st.column_config.TextColumn(COL_VENUE, width="medium"),
+            COL_NAME:       st.column_config.TextColumn(COL_NAME,       width="medium"),
+            COL_URL:        st.column_config.TextColumn(COL_URL,        width="large"),
+            COL_FEE:        st.column_config.TextColumn(COL_FEE,        width="small", help="ค่าสมัครล่วงหน้า หลายค่าคั่นด้วย , เช่น 500,900"),
+            COL_WALKIN_FEE: st.column_config.TextColumn(COL_WALKIN_FEE, width="small", help="ค่าสมัครวันงาน (ถ้าต่างจากล่วงหน้า)"),
+            COL_DATE:       st.column_config.TextColumn(COL_DATE,       width="small", help="เช่น 28 มิ.ย. 69"),
+            COL_TIME:       st.column_config.TextColumn(COL_TIME,       width="small", help="เช่น 10:00 น."),
+            COL_VENUE:      st.column_config.TextColumn(COL_VENUE,      width="medium"),
         },
     )
     st.divider()
@@ -720,6 +722,7 @@ with tab_settings:
 
 # ─── Tab: ตรวจสลิป ───────────────────────────────────────────────────────────
 with tab_verify:
+    st.caption("🗓️ สำหรับผู้ลงทะเบียน**ล่วงหน้า**ผ่าน Google Form เท่านั้น | ผู้ลงทะเบียนหน้างานเพิ่มได้ใน tab 📋 รายชื่อ → ประกาศ")
     st.subheader("📁 ไฟล์รายงานธนาคาร")
     bank_files = st.file_uploader(
         "อัปโหลด PDF หรือ CSV จาก SCB แม่มณี (เลือกได้หลายไฟล์)",
@@ -1064,8 +1067,17 @@ with tab_list:
 
                 # ── ประกาศ ──────────────────────────────────────────────────────
                 with tab_a:
+                    _ev_row_a    = edited_df[edited_df[COL_NAME] == ev_name]
+                    _pre_fee_a   = str(_ev_row_a[COL_FEE].values[0]).strip()        if not _ev_row_a.empty and COL_FEE        in _ev_row_a.columns else ""
+                    _walkin_fee_a= str(_ev_row_a[COL_WALKIN_FEE].values[0]).strip() if not _ev_row_a.empty and COL_WALKIN_FEE in _ev_row_a.columns else ""
+                    if _pre_fee_a or _walkin_fee_a:
+                        _fee_parts = []
+                        if _pre_fee_a:    _fee_parts.append(f"ล่วงหน้า: **{_pre_fee_a}฿**")
+                        if _walkin_fee_a: _fee_parts.append(f"หน้างาน: **{_walkin_fee_a}฿**")
+                        st.caption("🏷️ " + " | ".join(_fee_parts))
+
                     if confirmed_df.empty:
-                        st.info("ยังไม่มีผู้ผ่านการยืนยัน")
+                        st.info("ยังไม่มีผู้ผ่านการยืนยัน (ล่วงหน้า)")
                     else:
                         col_fb, col_reg = st.columns([3, 1])
                         with col_fb:
@@ -1101,11 +1113,49 @@ with tab_list:
                                             [i, row["ชื่อที่ใช้แข่ง"], "", ""]
                                             for i, (_, row) in enumerate(confirmed_df.iterrows(), 1)
                                         ])
+                                        # invalidate ci cache
+                                        _cik = f"checkin_{ev_name}"
+                                        st.session_state.pop(_cik, None)
+                                        st.session_state.pop(f"{_cik}_order", None)
                                         st.success(f"✅ สร้างแล้ว — tab '{ws_title}'")
                                     except Exception as e:
                                         st.error(f"สร้างไม่ได้: {e}")
                                 else:
                                     st.warning("ต้องระบุ Output Sheet URL ก่อน")
+
+                    # ── ลงทะเบียนหน้างาน ────────────────────────────────────────
+                    st.divider()
+                    st.write("**➕ ลงทะเบียนหน้างาน**")
+                    _walkin_name = st.text_input(
+                        "ชื่อผู้แข่ง", placeholder="พิมพ์ชื่อ…",
+                        key=f"walkin_{ev_name}_{run_count}_{save_count}",
+                    )
+                    if st.button("➕ เพิ่มหน้างาน", key=f"walkin_btn_{ev_name}_{run_count}_{save_count}"):
+                        if not _walkin_name.strip():
+                            st.warning("กรอกชื่อก่อน")
+                        elif not out_sheet_id:
+                            st.warning("ต้องระบุ Output Sheet URL ก่อน")
+                        else:
+                            try:
+                                _gc_w    = get_gc()
+                                _sht_w   = _gc_w.open_by_key(out_sheet_id)
+                                _ws_t    = f"ลงทะเบียน — {ev_name}"
+                                try:
+                                    _ws_w    = _sht_w.worksheet(_ws_t)
+                                    _exist   = _ws_w.get_all_values()
+                                    _next_n  = len(_exist)  # header + n rows → next = n+1 = len
+                                except gspread.WorksheetNotFound:
+                                    _ws_w = _sht_w.add_worksheet(title=_ws_t, rows=200, cols=4)
+                                    _ws_w.append_row(["ลำดับ", "ชื่อที่ใช้แข่ง", "เช็คอิน ✓", "หมายเหตุ"])
+                                    _next_n = 1
+                                _ws_w.append_row([_next_n, _walkin_name.strip(), "", "หน้างาน"])
+                                _cik = f"checkin_{ev_name}"
+                                st.session_state.pop(_cik, None)
+                                st.session_state.pop(f"{_cik}_order", None)
+                                st.success(f"✅ เพิ่ม **{_walkin_name.strip()}** ลำดับที่ {_next_n} (หน้างาน) แล้ว")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"เพิ่มไม่ได้: {e}")
 
                 # ── อีเมล ────────────────────────────────────────────────────────
                 with tab_e:
@@ -1225,6 +1275,7 @@ with tab_list:
 
                         if ci_key not in st.session_state:
                             ci_state: dict[str, str] = {}
+                            _reg_order: list[tuple]  = []  # (num, name)
                             if out_sheet_id:
                                 try:
                                     _gc    = get_gc()
@@ -1232,20 +1283,26 @@ with tab_list:
                                     ws_reg = _sheet.worksheet(f"ลงทะเบียน — {ev_name}")
                                     reg_rows = ws_reg.get_all_values()
                                     if len(reg_rows) > 1:
-                                        hdr    = reg_rows[0]
-                                        n_idx  = next((i for i, h in enumerate(hdr) if h == "ชื่อที่ใช้แข่ง"), 1)
-                                        ci_idx = next((i for i, h in enumerate(hdr) if "เช็คอิน" in h), 2)
+                                        hdr     = reg_rows[0]
+                                        n_idx   = next((i for i, h in enumerate(hdr) if h == "ชื่อที่ใช้แข่ง"), 1)
+                                        ci_idx  = next((i for i, h in enumerate(hdr) if "เช็คอิน" in h), 2)
+                                        num_idx = next((i for i, h in enumerate(hdr) if h == "ลำดับ"), 0)
                                         for r in reg_rows[1:]:
-                                            pname = r[n_idx] if n_idx < len(r) else ""
-                                            ci_v  = r[ci_idx] if ci_idx < len(r) else ""
+                                            pname = r[n_idx]   if n_idx   < len(r) else ""
+                                            ci_v  = r[ci_idx]  if ci_idx  < len(r) else ""
+                                            num   = r[num_idx] if num_idx < len(r) else ""
                                             if pname:
                                                 ci_state[pname] = ci_v
+                                                _reg_order.append((num, pname))
                                 except Exception:
                                     pass
-                            st.session_state[ci_key] = ci_state
+                            st.session_state[ci_key]            = ci_state
+                            st.session_state[f"{ci_key}_order"] = _reg_order
 
                         ci_state    = st.session_state[ci_key]
-                        valid_names = set(confirmed_df["ชื่อที่ใช้แข่ง"].tolist())
+                        _reg_order  = st.session_state.get(f"{ci_key}_order", [])
+                        # valid names รวม walk-in ด้วย (ทุกคนใน ลงทะเบียน sheet)
+                        valid_names = set(ci_state.keys()) or set(confirmed_df["ชื่อที่ใช้แข่ง"].tolist())
 
                         if HAS_SCANNER:
                             st.write("**📷 สแกน QR จากอีเมลผู้แข่ง**")
@@ -1286,14 +1343,16 @@ with tab_list:
                         else:
                             st.info("ติดตั้ง `streamlit-qrcode-scanner` เพื่อใช้งาน QR scanner")
 
-                        all_ci_rows = [
-                            {
-                                "เช็คอิน ✓":      bool(ci_state.get(row["ชื่อที่ใช้แข่ง"], "")),
-                                "#":               int(row["#"]),
-                                "ชื่อที่ใช้แข่ง": row["ชื่อที่ใช้แข่ง"],
-                            }
-                            for _, row in confirmed_df.iterrows()
-                        ]
+                        if _reg_order:
+                            all_ci_rows = [
+                                {"เช็คอิน ✓": bool(ci_state.get(name, "")), "#": num, "ชื่อที่ใช้แข่ง": name}
+                                for num, name in _reg_order
+                            ]
+                        else:
+                            all_ci_rows = [
+                                {"เช็คอิน ✓": bool(ci_state.get(row["ชื่อที่ใช้แข่ง"], "")), "#": int(row["#"]), "ชื่อที่ใช้แข่ง": row["ชื่อที่ใช้แข่ง"]}
+                                for _, row in confirmed_df.iterrows()
+                            ]
                         checked_in_n = sum(1 for r in all_ci_rows if r["เช็คอิน ✓"])
                         st.caption(f"เช็คอินแล้ว **{checked_in_n} / {len(all_ci_rows)}** คน")
 
