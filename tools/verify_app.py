@@ -12,6 +12,7 @@ import json
 import os
 import re
 import smtplib
+import time
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -1080,7 +1081,7 @@ with tab_list:
     # ── Auto-load ครั้งแรก + ปุ่มโหลดใหม่ ───────────────────────────────────────
     _col_reload, _col_pad = st.columns([1, 5])
     if _col_reload.button("🔄 โหลดใหม่", key="btn_reload_list"):
-        for _k in ("all_results", "all_emails", "summary_data"):
+        for _k in ("all_results", "all_emails", "summary_data", "_load_retry_after"):
             st.session_state.pop(_k, None)
         st.rerun()
 
@@ -1088,16 +1089,26 @@ with tab_list:
         if not output_url.strip():
             st.info("ระบุ Output Sheet URL ในแท็บ ⚙️ ตั้งค่า แล้วกด 💾 บันทึกการตั้งค่า ก่อน")
         else:
-            with st.spinner("⏳ กำลังโหลดรายชื่อจาก Sheet..."):
-                _load_err = _load_from_sheet(edited_df, output_url, _run_count)
-            if _load_err:
-                st.error(f"โหลดไม่ได้: {_load_err}")
+            _retry_after = st.session_state.get("_load_retry_after", 0)
+            _now = time.time()
+            if _now < _retry_after:
+                _wait = int(_retry_after - _now)
+                st.warning(f"Google Sheets rate limit — รอ {_wait} วินาทีแล้วกด 🔄 โหลดใหม่")
             else:
-                _list_results = st.session_state.get("all_results")
-                _list_emails  = st.session_state.get("all_emails", {})
-                _out_id_list  = st.session_state.get("out_sheet_id_run")
-                _run_count    = st.session_state.get("run_count", 0)
-                _save_count   = st.session_state.get("save_count", 0)
+                with st.spinner("⏳ กำลังโหลดรายชื่อจาก Sheet..."):
+                    _load_err = _load_from_sheet(edited_df, output_url, _run_count)
+                if _load_err:
+                    if "429" in _load_err:
+                        st.session_state["_load_retry_after"] = _now + 60
+                        st.error("Google Sheets ถูกเรียกถี่เกินไป — รอ 1 นาทีแล้วกด 🔄 โหลดใหม่")
+                    else:
+                        st.error(f"โหลดไม่ได้: {_load_err}")
+                else:
+                    _list_results = st.session_state.get("all_results")
+                    _list_emails  = st.session_state.get("all_emails", {})
+                    _out_id_list  = st.session_state.get("out_sheet_id_run")
+                    _run_count    = st.session_state.get("run_count", 0)
+                    _save_count   = st.session_state.get("save_count", 0)
 
     # ── แสดงรายชื่อต่อเมื่อมีข้อมูล ──────────────────────────────────────────
     if _list_results:
