@@ -1634,30 +1634,36 @@ with tab_checkin:
                     valid_names = set(ci_state.keys()) or set(confirmed_df["ชื่อที่ใช้แข่ง"].tolist())
 
                     if HAS_SCANNER:
-                        st.write("**📷 สแกน QR จากอีเมลผู้แข่ง**")
-                        scanned = _qr_scanner(key=f"qr_{ev_name}_{run_count}")
-
-                        if scanned and scanned != st.session_state.get(last_scan_key, ""):
-                            st.session_state[last_scan_key] = scanned
-                            if scanned.startswith("WAKA|"):
-                                parts        = scanned.split("|")
-                                scanned_name = parts[2] if len(parts) >= 3 else ""
-                                if scanned_name in valid_names:
-                                    if ci_state.get(scanned_name):
-                                        st.session_state[scan_msg_key] = ("warning", f"⚠️ {scanned_name} เช็คอินไปแล้ว")
+                        _scan_active_key = f"scan_active_{ev_name}"
+                        _col_scan, _col_close = st.columns([2, 1])
+                        if _col_scan.button("📷 เปิดกล้องสแกน QR", key=f"scan_btn_{ev_name}_{run_count}"):
+                            st.session_state[_scan_active_key] = True
+                        if st.session_state.get(_scan_active_key):
+                            if _col_close.button("✖ ปิดกล้อง", key=f"scan_close_{ev_name}_{run_count}"):
+                                st.session_state[_scan_active_key] = False
+                                st.rerun()
+                            scanned = _qr_scanner(key=f"qr_{ev_name}_{run_count}")
+                            if scanned and scanned != st.session_state.get(last_scan_key, ""):
+                                st.session_state[last_scan_key] = scanned
+                                if scanned.startswith("WAKA|"):
+                                    parts        = scanned.split("|")
+                                    scanned_name = parts[2] if len(parts) >= 3 else ""
+                                    if scanned_name in valid_names:
+                                        if ci_state.get(scanned_name):
+                                            st.session_state[scan_msg_key] = ("warning", f"⚠️ {scanned_name} เช็คอินไปแล้ว")
+                                        else:
+                                            ci_state[scanned_name] = "✓"
+                                            st.session_state[ci_key] = ci_state
+                                            if out_sheet_id:
+                                                try:
+                                                    _sync_checkin_sheet(out_sheet_id, ev_name, confirmed_df, ci_state, name_filter=scanned_name)
+                                                except Exception:
+                                                    pass
+                                            st.session_state[scan_msg_key] = ("success", f"✅ เช็คอิน **{scanned_name}** แล้ว!")
                                     else:
-                                        ci_state[scanned_name] = "✓"
-                                        st.session_state[ci_key] = ci_state
-                                        if out_sheet_id:
-                                            try:
-                                                _sync_checkin_sheet(out_sheet_id, ev_name, confirmed_df, ci_state, name_filter=scanned_name)
-                                            except Exception:
-                                                pass
-                                        st.session_state[scan_msg_key] = ("success", f"✅ เช็คอิน **{scanned_name}** แล้ว!")
+                                        st.session_state[scan_msg_key] = ("error", f"ไม่พบ '{scanned_name}' ในรายการ {ev_name}")
                                 else:
-                                    st.session_state[scan_msg_key] = ("error", f"ไม่พบ '{scanned_name}' ในรายการ {ev_name}")
-                            else:
-                                st.session_state[scan_msg_key] = ("error", "QR ไม่ถูกต้อง — ใช้ QR จากอีเมลยืนยันเท่านั้น")
+                                    st.session_state[scan_msg_key] = ("error", "QR ไม่ถูกต้อง — ใช้ QR จากอีเมลยืนยันเท่านั้น")
 
                         if scan_msg_key in st.session_state:
                             lvl, msg = st.session_state[scan_msg_key]
@@ -1666,8 +1672,6 @@ with tab_checkin:
                             else:                  st.error(msg)
 
                         st.divider()
-                    else:
-                        st.info("ติดตั้ง `streamlit-qrcode-scanner` เพื่อใช้งาน QR scanner")
 
                     if _reg_order:
                         all_ci_rows = [
