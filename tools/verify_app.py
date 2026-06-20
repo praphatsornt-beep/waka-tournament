@@ -199,10 +199,11 @@ def load_config() -> dict:
     st.session_state["_config_source"] = "default"
     return {"events": DEFAULT_EVENTS, "output_sheet_url": bootstrap_url or DEFAULT_OUTPUT_URL}
 
-def save_config(events_records: list, output_url: str) -> str | None:
+def save_config(events_records: list, output_url: str, col_category: str = "", col_days: str = "") -> str | None:
     """บันทึก config ลงทั้ง local file และ Google Sheet (_config tab)
     คืนค่า error message ถ้า Sheet save ล้มเหลว, None ถ้าสำเร็จทั้งคู่"""
-    data    = {"events": events_records, "output_sheet_url": output_url}
+    data    = {"events": events_records, "output_sheet_url": output_url,
+               "col_category": col_category, "col_days": col_days}
     payload = json.dumps(data, ensure_ascii=False)
     CONFIG_PATH.write_text(payload, encoding="utf-8")
     try:
@@ -581,7 +582,7 @@ def parse_txn_date(date_str: str) -> "_date_cls | None":
     except Exception:
         return None
 
-def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
+def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None, col_category="", col_days=""):
     name          = event["name"]
     expected_fees = event["fee"] if isinstance(event["fee"], list) else [float(event["fee"])]
 
@@ -593,7 +594,13 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
         return [], 0, 0, 0, 0
 
     header, data_rows = rows[0], rows[1:]
-    cols = detect_columns(header, FORM_COLUMN_KEYWORDS)
+    # ถ้ากรอกชื่อคอลัมน์จริงไว้ใน settings ให้ใช้ exact match ก่อน keyword
+    _kw = dict(FORM_COLUMN_KEYWORDS)
+    if col_category:
+        _kw["category"] = [col_category] + _kw.get("category", [])
+    if col_days:
+        _kw["days"]     = [col_days]     + _kw.get("days", [])
+    cols = detect_columns(header, _kw)
 
     # Fallback: ถ้าหา slip_url ด้วย keyword ไม่ได้ ให้สแกนหาคอลัมน์ที่มีลิงก์ Drive
     if "slip_url" not in cols and data_rows:
@@ -1035,6 +1042,20 @@ with tab_settings:
         },
     )
     st.divider()
+    st.subheader("🗂️ ชื่อคอลัมน์ในฟอร์ม")
+    st.caption("ใส่ชื่อคำถามที่ตั้งไว้ในฟอร์มให้ตรงทั้ง 2 ช่อง ระบบจะจับคู่แบบ exact match")
+    _col2a, _col2b = st.columns(2)
+    col_category = _col2a.text_input(
+        "ชื่อคำถาม รายการที่แข่ง",
+        value=config.get("col_category", ""),
+        placeholder="เช่น รายการที่แข่ง",
+    )
+    col_days = _col2b.text_input(
+        "ชื่อคำถาม ประเภทที่ลงสมัคร",
+        value=config.get("col_days", ""),
+        placeholder="เช่น ประเภทที่ลงสมัคร (1 วัน / 2 วัน)",
+    )
+    st.divider()
     st.subheader("📤 Output Sheet")
     output_url = st.text_input(
         "Google Sheet URL สำหรับบันทึกผล (ไม่บังคับ — ถ้าว่างจะแสดงเฉพาะในหน้านี้)",
@@ -1052,7 +1073,7 @@ with tab_settings:
         st.warning("⚠️ ใช้ค่า default — กด 💾 บันทึกการตั้งค่า เพื่อเก็บ config ไว้ใน Google Sheet")
 
     if st.button("💾 บันทึกการตั้งค่า"):
-        err = save_config(edited_df.to_dict("records"), output_url)
+        err = save_config(edited_df.to_dict("records"), output_url, col_category, col_days)
         if err:
             st.warning(f"บันทึกลงไฟล์ local แล้ว แต่บันทึกลง Google Sheet ไม่ได้: {err}")
         else:
@@ -1185,7 +1206,8 @@ with tab_verify:
             progress_bar.progress(idx / len(events), text=f"กำลังตรวจ {event['name']}...")
             try:
                 results, ok, warn, dup, fail, emails = process_event(
-                    event, gc, bank_rows, used_txn_ids, output_sheet
+                    event, gc, bank_rows, used_txn_ids, output_sheet,
+                    col_category=col_category, col_days=col_days,
                 )
                 all_results[event["name"]] = results
                 all_emails[event["name"]]  = emails
