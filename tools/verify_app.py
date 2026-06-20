@@ -138,8 +138,10 @@ def _save_new_txns(output_sheet, all_results: dict, known_txn_ids: set) -> None:
     for ev_name, results in all_results.items():
         for row in results:
             txn_id    = row[9] if len(row) > 9 else ""
+            status    = row[5] if len(row) > 5 else ""
             game_name = row[1] if len(row) > 1 else ""
-            if txn_id and txn_id not in seen:
+            # บันทึกเฉพาะ ✅ เท่านั้น — ⚠️ ยังไม่ยืนยัน ไม่ควร lock txn
+            if txn_id and "✅" in str(status) and txn_id not in seen:
                 new_rows.append([txn_id, game_name, ev_name, today])
                 seen.add(txn_id)
     if not new_rows:
@@ -601,22 +603,41 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
             if "slip_url" in cols:
                 break
 
-    # อ่านค่า "ตรวจสลิปแล้ว" ที่ admin กรอกไว้ก่อน clear
-    manual_ok = {}  # game_name → note
+    # อ่านผลลัพธ์รอบก่อนจาก output sheet
+    manual_ok     = {}  # game_name → note (col ตรวจสลิปแล้ว)
+    prev_confirmed = {}  # game_name → {status, detail, amount, bank_name, txn_id, date}
     if output_sheet:
         try:
             ws_prev = output_sheet.worksheet(name)
             prev    = _retry_429(ws_prev.get_all_values)
             if len(prev) > 1:
-                hdr   = prev[0]
-                oc_i  = next((i for i, h in enumerate(hdr) if h == "ตรวจสลิปแล้ว"), None)
-                gn_i  = next((i for i, h in enumerate(hdr) if h == "ชื่อที่ใช้แข่ง"), 1)
-                if oc_i is not None:
-                    for r in prev[1:]:
-                        val = r[oc_i].strip() if oc_i < len(r) else ""
-                        gn  = r[gn_i]        if gn_i  < len(r) else ""
-                        if val and gn:
-                            manual_ok[gn] = val
+                hdr  = prev[0]
+                def _ci(col_name): return next((i for i, h in enumerate(hdr) if h == col_name), None)
+                oc_i = _ci("ตรวจสลิปแล้ว")
+                gn_i = _ci("ชื่อที่ใช้แข่ง") or 1
+                st_i = _ci("สถานะ")
+                dt_i = _ci("รายละเอียด")
+                am_i = _ci("ยอดที่พบ")
+                bn_i = _ci("ชื่อในธนาคาร")
+                ti_i = _ci("เลขที่รายการ")
+                da_i = _ci("วันที่โอน")
+                for r in prev[1:]:
+                    def _rv(i): return r[i].strip() if i is not None and i < len(r) else ""
+                    gn  = _rv(gn_i)
+                    val = _rv(oc_i) if oc_i is not None else ""
+                    if val and gn:
+                        manual_ok[gn] = val
+                    # โหลดแถวที่ยืนยันแล้ว ✅ เพื่อข้าม bank matching ในรอบนี้
+                    st = _rv(st_i) if st_i is not None else ""
+                    if gn and "✅" in st and gn not in manual_ok:
+                        prev_confirmed[gn] = {
+                            "status":    st,
+                            "detail":    _rv(dt_i) if dt_i is not None else "",
+                            "amount":    _rv(am_i) if am_i is not None else "",
+                            "bank_name": _rv(bn_i) if bn_i is not None else "",
+                            "txn_id":    _rv(ti_i) if ti_i is not None else "",
+                            "date":      _rv(da_i) if da_i is not None else "",
+                        }
         except Exception:
             pass
 
@@ -645,6 +666,8 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
     # Pass 1: lock ✅ (ชื่อ + ยอดตรง)
     exact_matches, txn_to_owner = {}, {}
     for seq, game_name, oc, fb, tr, slip, email_addr in parsed:
+        if game_name in prev_confirmed or game_name in manual_ok:
+            continue  # ยืนยันแล้วรอบก่อน — ข้าม bank matching
         txn, status, detail = find_matching_txn(tr, fb, expected_fees, recent_bank_rows, used_txn_ids)
         if status == "✅" and txn:
             used_txn_ids.add(txn["txn_id"])
@@ -655,7 +678,7 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
     MIN_PASS2_SIM = 0.3
     candidates = []
     for seq, game_name, oc, fb, tr, slip, email_addr in parsed:
-        if seq in exact_matches or game_name in manual_ok:
+        if seq in exact_matches or game_name in manual_ok or game_name in prev_confirmed:
             continue
         match_name = tr if tr else fb
         for txn in recent_bank_rows:
@@ -679,7 +702,7 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
     # Pass 3: ⚠️ ยอดไม่ตรง — ชื่อตรงแต่ยอดต่างจากค่าสมัคร (เช่น โอน 1000 แต่ fee 500)
     amount_mismatch = {}
     for seq, game_name, oc, fb, tr, slip, email_addr in parsed:
-        if seq in exact_matches or seq in warn_matches or game_name in manual_ok:
+        if seq in exact_matches or seq in warn_matches or game_name in manual_ok or game_name in prev_confirmed:
             continue
         match_name = tr if tr else fb
         n_match = normalize(match_name)
@@ -701,6 +724,18 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
     results = []
     emails  = {}  # game_name → email address
     for seq, game_name, oc, fb, tr, slip, email_addr in parsed:
+        # ยืนยันแล้วจากรอบก่อน — ใช้ผลลัพธ์เดิมโดยตรง ไม่ต้อง re-match
+        if game_name in prev_confirmed:
+            pc = prev_confirmed[game_name]
+            if email_addr:
+                emails[game_name] = email_addr
+            results.append([
+                seq, game_name, oc, fb, tr,
+                pc["status"], pc["detail"],
+                pc["amount"], pc["bank_name"], pc["txn_id"],
+                pc["date"], slip, manual_ok.get(game_name, ""),
+            ])
+            continue
         if seq in exact_matches:
             txn, status, detail = exact_matches[seq]
         elif seq in warn_matches:
@@ -972,7 +1007,7 @@ for col in [COL_NAME, COL_URL, COL_FEE, COL_WALKIN_FEE, COL_DATE, COL_TIME, COL_
     if col not in events_df.columns:
         events_df[col] = ""
 
-tab_settings, tab_verify, tab_list = st.tabs(["⚙️ ตั้งค่า", "🔍 ตรวจสลิป", "📋 รายชื่อ"])
+tab_settings, tab_verify, tab_list, tab_checkin = st.tabs(["⚙️ ตั้งค่า", "🔍 ตรวจสลิป", "📋 รายชื่อ", "🎫 เช็คอิน"])
 
 # ─── Tab: ตั้งค่า ─────────────────────────────────────────────────────────────
 with tab_settings:
@@ -1033,7 +1068,27 @@ with tab_verify:
     if bank_files:
         st.session_state["bank_files"] = [(f.name, f.read()) for f in bank_files]
 
-    has_file    = "bank_files" in st.session_state
+    has_file = "bank_files" in st.session_state
+
+    # ── Warning: มีการตรวจสลิปด้วยมือค้างจากรอบก่อน ──────────────────────────
+    _has_manual_overrides = any(
+        len(row) > 12 and str(row[12]).strip()
+        for ev_results in st.session_state.get("all_results", {}).values()
+        for row in ev_results
+    )
+    if _has_manual_overrides:
+        if not output_url.strip():
+            st.warning(
+                "⚠️ **พบการตรวจสลิปด้วยมือจากรอบก่อน** แต่ยังไม่ได้ตั้งค่า Output Sheet URL  \n"
+                "ถ้ารันใหม่ข้อมูลเหล่านั้นจะหายทั้งหมด — กรุณาตั้งค่า **Output Sheet URL** "
+                "ในแท็บ ⚙️ ก่อน"
+            )
+        else:
+            st.info(
+                "ℹ️ พบการตรวจสลิปด้วยมือจากรอบก่อน "
+                "— ระบบจะโหลดจาก Sheet อัตโนมัติ **(ต้องกด 💾 บันทึก ก่อนรันใหม่)**"
+            )
+
     run_clicked = st.button("🚀 เริ่มตรวจสอบ", type="primary", disabled=not has_file)
 
     if run_clicked:
@@ -1339,7 +1394,7 @@ with tab_list:
             confirmed     = len(confirmed_df)
 
             with st.expander(f"**{ev_name}** — {confirmed} คนยืนยัน", expanded=True):
-                tab_a, tab_e, tab_c = st.tabs(["📢 ประกาศ", "📧 อีเมล", "🎫 เช็คอิน"])
+                tab_a, tab_e = st.tabs(["📢 ประกาศ", "📧 อีเมล"])
 
                 # ── ประกาศ ──────────────────────────────────────────────────────
                 with tab_a:
@@ -1562,129 +1617,148 @@ with tab_list:
                                         st.success(f"✅ ส่งอีเมลครบ {len(selected)} คนแล้ว")
                                     st.rerun()
 
-                # ── เช็คอิน ──────────────────────────────────────────────────────
-                with tab_c:
-                    if confirmed_df.empty:
-                        st.info("ยังไม่มีผู้ผ่านการยืนยัน")
-                    else:
-                        ci_key        = f"checkin_{ev_name}"
-                        last_scan_key = f"last_scan_{ev_name}"
-                        scan_msg_key  = f"scan_msg_{ev_name}"
 
-                        if ci_key not in st.session_state:
-                            ci_state: dict[str, str] = {}
-                            _reg_order: list[tuple]  = []  # (num, name)
-                            if out_sheet_id:
-                                try:
-                                    _gc    = get_gc()
-                                    _sheet = _gc.open_by_key(out_sheet_id)
-                                    ws_reg = _sheet.worksheet(f"ลงทะเบียน — {ev_name}")
-                                    reg_rows = _retry_429(ws_reg.get_all_values)
-                                    if len(reg_rows) > 1:
-                                        hdr     = reg_rows[0]
-                                        n_idx   = next((i for i, h in enumerate(hdr) if h == "ชื่อที่ใช้แข่ง"), 1)
-                                        ci_idx  = next((i for i, h in enumerate(hdr) if "เช็คอิน" in h), 2)
-                                        num_idx = next((i for i, h in enumerate(hdr) if h == "ลำดับ"), 0)
-                                        for r in reg_rows[1:]:
-                                            pname = r[n_idx]   if n_idx   < len(r) else ""
-                                            ci_v  = r[ci_idx]  if ci_idx  < len(r) else ""
-                                            num   = r[num_idx] if num_idx < len(r) else ""
-                                            if pname:
-                                                ci_state[pname] = ci_v
-                                                _reg_order.append((num, pname))
-                                except Exception:
-                                    pass
-                            st.session_state[ci_key]            = ci_state
-                            st.session_state[f"{ci_key}_order"] = _reg_order
+# ─── Tab: เช็คอิน ─────────────────────────────────────────────────────────────
+with tab_checkin:
+    _ci_results  = st.session_state.get("all_results")
+    _ci_out_id   = st.session_state.get("out_sheet_id_run")
+    _ci_run      = st.session_state.get("run_count", 0)
+    _ci_save     = st.session_state.get("save_count", 0)
 
-                        ci_state    = st.session_state[ci_key]
-                        _reg_order  = st.session_state.get(f"{ci_key}_order", [])
-                        # valid names รวม walk-in ด้วย (ทุกคนใน ลงทะเบียน sheet)
-                        valid_names = set(ci_state.keys()) or set(confirmed_df["ชื่อที่ใช้แข่ง"].tolist())
+    if not _ci_results:
+        st.info("รันตรวจสลิปก่อน หรือโหลดรายชื่อจาก tab 📋 รายชื่อ ก่อนครับ")
+    else:
+        out_sheet_id = _ci_out_id
+        run_count    = _ci_run
+        save_count   = _ci_save
 
-                        if HAS_SCANNER:
-                            st.write("**📷 สแกน QR จากอีเมลผู้แข่ง**")
-                            scanned = _qr_scanner(key=f"qr_{ev_name}_{run_count}")
+        for ev_name, results in _ci_results.items():
+            if not results:
+                continue
+            df           = pd.DataFrame(results, columns=OUTPUT_HEADER)
+            _s_confirmed = df["สถานะ"].astype(str).str.contains("✅", na=False, regex=False)
+            _s_override  = df["ตรวจสลิปแล้ว"].astype(str).str.strip() != ""
+            confirmed_df = df[_s_confirmed | _s_override].sort_values("#").reset_index(drop=True)
+            confirmed    = len(confirmed_df)
 
-                            if scanned and scanned != st.session_state.get(last_scan_key, ""):
-                                st.session_state[last_scan_key] = scanned
-                                if scanned.startswith("WAKA|"):
-                                    parts        = scanned.split("|")
-                                    scanned_name = parts[2] if len(parts) >= 3 else ""
-                                    if scanned_name in valid_names:
-                                        if ci_state.get(scanned_name):
-                                            st.session_state[scan_msg_key] = ("warning", f"⚠️ {scanned_name} เช็คอินไปแล้ว")
-                                        else:
-                                            ci_state[scanned_name] = "✓"
-                                            st.session_state[ci_key] = ci_state
-                                            if out_sheet_id:
-                                                try:
-                                                    _sync_checkin_sheet(out_sheet_id, ev_name, confirmed_df, ci_state, name_filter=scanned_name)
-                                                except Exception:
-                                                    pass
-                                            st.session_state[scan_msg_key] = ("success", f"✅ เช็คอิน **{scanned_name}** แล้ว!")
+            with st.expander(f"**{ev_name}** — {confirmed} คนยืนยัน", expanded=True):
+                if confirmed_df.empty:
+                    st.info("ยังไม่มีผู้ผ่านการยืนยัน")
+                else:
+                    ci_key        = f"checkin_{ev_name}"
+                    last_scan_key = f"last_scan_{ev_name}"
+                    scan_msg_key  = f"scan_msg_{ev_name}"
+
+                    if ci_key not in st.session_state:
+                        ci_state: dict[str, str] = {}
+                        _reg_order: list[tuple]  = []
+                        if out_sheet_id:
+                            try:
+                                _gc    = get_gc()
+                                _sheet = _gc.open_by_key(out_sheet_id)
+                                ws_reg = _sheet.worksheet(f"ลงทะเบียน — {ev_name}")
+                                reg_rows = _retry_429(ws_reg.get_all_values)
+                                if len(reg_rows) > 1:
+                                    hdr     = reg_rows[0]
+                                    n_idx   = next((i for i, h in enumerate(hdr) if h == "ชื่อที่ใช้แข่ง"), 1)
+                                    ci_idx  = next((i for i, h in enumerate(hdr) if "เช็คอิน" in h), 2)
+                                    num_idx = next((i for i, h in enumerate(hdr) if h == "ลำดับ"), 0)
+                                    for r in reg_rows[1:]:
+                                        pname = r[n_idx]   if n_idx   < len(r) else ""
+                                        ci_v  = r[ci_idx]  if ci_idx  < len(r) else ""
+                                        num   = r[num_idx] if num_idx < len(r) else ""
+                                        if pname:
+                                            ci_state[pname] = ci_v
+                                            _reg_order.append((num, pname))
+                            except Exception:
+                                pass
+                        st.session_state[ci_key]            = ci_state
+                        st.session_state[f"{ci_key}_order"] = _reg_order
+
+                    ci_state    = st.session_state[ci_key]
+                    _reg_order  = st.session_state.get(f"{ci_key}_order", [])
+                    valid_names = set(ci_state.keys()) or set(confirmed_df["ชื่อที่ใช้แข่ง"].tolist())
+
+                    if HAS_SCANNER:
+                        st.write("**📷 สแกน QR จากอีเมลผู้แข่ง**")
+                        scanned = _qr_scanner(key=f"qr_{ev_name}_{run_count}")
+
+                        if scanned and scanned != st.session_state.get(last_scan_key, ""):
+                            st.session_state[last_scan_key] = scanned
+                            if scanned.startswith("WAKA|"):
+                                parts        = scanned.split("|")
+                                scanned_name = parts[2] if len(parts) >= 3 else ""
+                                if scanned_name in valid_names:
+                                    if ci_state.get(scanned_name):
+                                        st.session_state[scan_msg_key] = ("warning", f"⚠️ {scanned_name} เช็คอินไปแล้ว")
                                     else:
-                                        st.session_state[scan_msg_key] = ("error", f"ไม่พบ '{scanned_name}' ในรายการ {ev_name}")
+                                        ci_state[scanned_name] = "✓"
+                                        st.session_state[ci_key] = ci_state
+                                        if out_sheet_id:
+                                            try:
+                                                _sync_checkin_sheet(out_sheet_id, ev_name, confirmed_df, ci_state, name_filter=scanned_name)
+                                            except Exception:
+                                                pass
+                                        st.session_state[scan_msg_key] = ("success", f"✅ เช็คอิน **{scanned_name}** แล้ว!")
                                 else:
-                                    st.session_state[scan_msg_key] = ("error", "QR ไม่ถูกต้อง — ใช้ QR จากอีเมลยืนยันเท่านั้น")
-
-                            if scan_msg_key in st.session_state:
-                                lvl, msg = st.session_state[scan_msg_key]
-                                if lvl == "success":
-                                    st.success(msg)
-                                elif lvl == "warning":
-                                    st.warning(msg)
-                                else:
-                                    st.error(msg)
-
-                            st.divider()
-                        else:
-                            st.info("ติดตั้ง `streamlit-qrcode-scanner` เพื่อใช้งาน QR scanner")
-
-                        if _reg_order:
-                            all_ci_rows = [
-                                {"เช็คอิน ✓": bool(ci_state.get(name, "")), "#": num, "ชื่อที่ใช้แข่ง": name}
-                                for num, name in _reg_order
-                            ]
-                        else:
-                            all_ci_rows = [
-                                {"เช็คอิน ✓": bool(ci_state.get(row["ชื่อที่ใช้แข่ง"], "")), "#": int(row["#"]), "ชื่อที่ใช้แข่ง": row["ชื่อที่ใช้แข่ง"]}
-                                for _, row in confirmed_df.iterrows()
-                            ]
-                        checked_in_n = sum(1 for r in all_ci_rows if r["เช็คอิน ✓"])
-                        st.caption(f"เช็คอินแล้ว **{checked_in_n} / {len(all_ci_rows)}** คน")
-
-                        search = st.text_input(
-                            "🔍 ค้นหา", placeholder="พิมพ์ชื่อเพื่อกรอง…",
-                            key=f"ci_search_{ev_name}_{run_count}",
-                        )
-                        ci_df = pd.DataFrame(all_ci_rows)
-                        if search:
-                            ci_df = ci_df[ci_df["ชื่อที่ใช้แข่ง"].str.contains(search, case=False, na=False)]
-
-                        edited_ci = st.data_editor(
-                            ci_df,
-                            key=f"ci_ed_{ev_name}_{run_count}_{save_count}",
-                            column_config={
-                                "เช็คอิน ✓":      st.column_config.CheckboxColumn("เช็คอิน ✓", width="small"),
-                                "#":               st.column_config.NumberColumn("#", width="small"),
-                                "ชื่อที่ใช้แข่ง": st.column_config.TextColumn("ชื่อที่ใช้แข่ง"),
-                            },
-                            disabled=["#", "ชื่อที่ใช้แข่ง"],
-                            hide_index=True,
-                            use_container_width=True,
-                        )
-
-                        if st.button("💾 บันทึกเช็คอิน", key=f"ci_save_{ev_name}_{run_count}_{save_count}"):
-                            for _, row in edited_ci.iterrows():
-                                ci_state[row["ชื่อที่ใช้แข่ง"]] = "✓" if row["เช็คอิน ✓"] else ""
-                            st.session_state[ci_key] = ci_state
-                            if out_sheet_id:
-                                try:
-                                    _sync_checkin_sheet(out_sheet_id, ev_name, confirmed_df, ci_state)
-                                    st.success("✅ บันทึกเช็คอินแล้ว")
-                                except Exception as e:
-                                    st.error(f"บันทึกไม่ได้: {e}")
+                                    st.session_state[scan_msg_key] = ("error", f"ไม่พบ '{scanned_name}' ในรายการ {ev_name}")
                             else:
-                                st.success("✅ บันทึกในหน้านี้แล้ว")
-                            st.rerun()
+                                st.session_state[scan_msg_key] = ("error", "QR ไม่ถูกต้อง — ใช้ QR จากอีเมลยืนยันเท่านั้น")
+
+                        if scan_msg_key in st.session_state:
+                            lvl, msg = st.session_state[scan_msg_key]
+                            if lvl == "success":   st.success(msg)
+                            elif lvl == "warning": st.warning(msg)
+                            else:                  st.error(msg)
+
+                        st.divider()
+                    else:
+                        st.info("ติดตั้ง `streamlit-qrcode-scanner` เพื่อใช้งาน QR scanner")
+
+                    if _reg_order:
+                        all_ci_rows = [
+                            {"เช็คอิน ✓": bool(ci_state.get(name, "")), "#": num, "ชื่อที่ใช้แข่ง": name}
+                            for num, name in _reg_order
+                        ]
+                    else:
+                        all_ci_rows = [
+                            {"เช็คอิน ✓": bool(ci_state.get(row["ชื่อที่ใช้แข่ง"], "")), "#": int(row["#"]), "ชื่อที่ใช้แข่ง": row["ชื่อที่ใช้แข่ง"]}
+                            for _, row in confirmed_df.iterrows()
+                        ]
+                    checked_in_n = sum(1 for r in all_ci_rows if r["เช็คอิน ✓"])
+                    st.caption(f"เช็คอินแล้ว **{checked_in_n} / {len(all_ci_rows)}** คน")
+
+                    search = st.text_input(
+                        "🔍 ค้นหา", placeholder="พิมพ์ชื่อเพื่อกรอง…",
+                        key=f"ci_search_{ev_name}_{run_count}",
+                    )
+                    ci_df = pd.DataFrame(all_ci_rows)
+                    if search:
+                        ci_df = ci_df[ci_df["ชื่อที่ใช้แข่ง"].str.contains(search, case=False, na=False)]
+
+                    edited_ci = st.data_editor(
+                        ci_df,
+                        key=f"ci_ed_{ev_name}_{run_count}_{save_count}",
+                        column_config={
+                            "เช็คอิน ✓":      st.column_config.CheckboxColumn("เช็คอิน ✓", width="small"),
+                            "#":               st.column_config.NumberColumn("#", width="small"),
+                            "ชื่อที่ใช้แข่ง": st.column_config.TextColumn("ชื่อที่ใช้แข่ง"),
+                        },
+                        disabled=["#", "ชื่อที่ใช้แข่ง"],
+                        hide_index=True,
+                        use_container_width=True,
+                    )
+
+                    if st.button("💾 บันทึกเช็คอิน", key=f"ci_save_{ev_name}_{run_count}_{save_count}"):
+                        for _, row in edited_ci.iterrows():
+                            ci_state[row["ชื่อที่ใช้แข่ง"]] = "✓" if row["เช็คอิน ✓"] else ""
+                        st.session_state[ci_key] = ci_state
+                        if out_sheet_id:
+                            try:
+                                _sync_checkin_sheet(out_sheet_id, ev_name, confirmed_df, ci_state)
+                                st.success("✅ บันทึกเช็คอินแล้ว")
+                            except Exception as e:
+                                st.error(f"บันทึกไม่ได้: {e}")
+                        else:
+                            st.success("✅ บันทึกในหน้านี้แล้ว")
+                        st.rerun()
