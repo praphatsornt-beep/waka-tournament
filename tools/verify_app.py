@@ -94,12 +94,15 @@ FORM_COLUMN_KEYWORDS = {
                       "transfer name", "ชื่อเจ้าของบัญชี", "ชื่อที่ใช้"],
     "slip_url":      ["สลิป", "slip", "หลักฐาน", "การชำระ", "payment", "อัพโหลด"],
     "email":         ["อีเมล", "email", "e-mail", "gmail", "mail"],
+    "category":      ["รายการที่แข่ง", "รายการ", "ประเภทการแข่ง", "division", "format", "category"],
+    "days":          ["ประเภทที่ลงสมัคร", "ประเภท", "จำนวนวัน", "1 วัน", "2 วัน", "day"],
 }
 
 OUTPUT_HEADER = [
     "#", "ชื่อที่ใช้แข่ง", "ชื่อใน OpenChat", "ชื่อเฟสบุค", "ชื่อบัญชีที่โอน",
     "สถานะ", "รายละเอียด", "ยอดที่พบ", "ชื่อในธนาคาร", "เลขที่รายการ", "วันที่โอน", "ลิงค์สลิป",
     "ตรวจสลิปแล้ว",  # admin กรอกเอง — ไม่โดนลบเมื่อรันใหม่
+    "รายการที่แข่ง", "ประเภทที่ลงสมัคร",
 ]
 
 # Pre-filled defaults (ใช้ครั้งแรก ถ้ายังไม่มี events_config.json)
@@ -649,7 +652,8 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
         game_name = cell("game_name") or cell("openchat_name")
         if game_name:
             parsed.append((seq, game_name, cell("openchat_name"), cell("facebook"),
-                           cell("transfer_name"), cell("slip_url"), cell("email")))
+                           cell("transfer_name"), cell("slip_url"), cell("email"),
+                           cell("category"), cell("days")))
 
     # กรอง bank_rows เฉพาะ transaction ไม่เก่ากว่า 3 วัน นับจาก transaction ล่าสุดใน statement
     _txn_dates = [parse_txn_date(t["date"]) for t in bank_rows]
@@ -665,7 +669,7 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
 
     # Pass 1: lock ✅ (ชื่อ + ยอดตรง)
     exact_matches, txn_to_owner = {}, {}
-    for seq, game_name, oc, fb, tr, slip, email_addr in parsed:
+    for seq, game_name, oc, fb, tr, slip, email_addr, cat, days in parsed:
         if game_name in prev_confirmed or game_name in manual_ok:
             continue  # ยืนยันแล้วรอบก่อน — ข้าม bank matching
         txn, status, detail = find_matching_txn(tr, fb, expected_fees, recent_bank_rows, used_txn_ids)
@@ -677,7 +681,7 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
     # Pass 2: ⚠️ โดยเรียงความคล้ายชื่อ (ต้องคล้ายกัน >= 30% จึง match)
     MIN_PASS2_SIM = 0.3
     candidates = []
-    for seq, game_name, oc, fb, tr, slip, email_addr in parsed:
+    for seq, game_name, oc, fb, tr, slip, email_addr, cat, days in parsed:
         if seq in exact_matches or game_name in manual_ok or game_name in prev_confirmed:
             continue
         match_name = tr if tr else fb
@@ -701,7 +705,7 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
 
     # Pass 3: ⚠️ ยอดไม่ตรง — ชื่อตรงแต่ยอดต่างจากค่าสมัคร (เช่น โอน 1000 แต่ fee 500)
     amount_mismatch = {}
-    for seq, game_name, oc, fb, tr, slip, email_addr in parsed:
+    for seq, game_name, oc, fb, tr, slip, email_addr, cat, days in parsed:
         if seq in exact_matches or seq in warn_matches or game_name in manual_ok or game_name in prev_confirmed:
             continue
         match_name = tr if tr else fb
@@ -723,7 +727,7 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
     # Compile
     results = []
     emails  = {}  # game_name → email address
-    for seq, game_name, oc, fb, tr, slip, email_addr in parsed:
+    for seq, game_name, oc, fb, tr, slip, email_addr, cat, days in parsed:
         # ยืนยันแล้วจากรอบก่อน — ใช้ผลลัพธ์เดิมโดยตรง ไม่ต้อง re-match
         if game_name in prev_confirmed:
             pc = prev_confirmed[game_name]
@@ -734,6 +738,7 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
                 pc["status"], pc["detail"],
                 pc["amount"], pc["bank_name"], pc["txn_id"],
                 pc["date"], slip, manual_ok.get(game_name, ""),
+                cat, days,
             ])
             continue
         if seq in exact_matches:
@@ -785,6 +790,7 @@ def process_event(event, gc, bank_rows, used_txn_ids, output_sheet=None):
             txn["date"]   if txn else "",
             slip,
             override,
+            cat, days,
         ])
 
     # Write to Google Sheet (ถ้ามี)
