@@ -26,11 +26,13 @@ try:
 except ImportError:
     HAS_SCANNER = False
 
-# ── Paths ──────────────────────────────────────────────────────────────────────
-SCOPES      = ["https://www.googleapis.com/auth/spreadsheets"]
-TOKEN_PATH  = Path("token.json")
-CREDS_PATH  = Path("credentials.json")
-CONFIG_PATH = Path("events_config.json")
+# ── Paths & constants ──────────────────────────────────────────────────────────
+SCOPES           = ["https://www.googleapis.com/auth/spreadsheets"]
+TOKEN_PATH       = Path("token.json")
+CREDS_PATH       = Path("credentials.json")
+CONFIG_PATH      = Path("events_config.json")
+CONFIG_SHEET_TAB = "_config"
+DEFAULT_OUTPUT_URL = "https://docs.google.com/spreadsheets/d/1WSfd9sKHl2H5O7Ai1DvqVaL7Tuwni-nfBc-hTX8HilA"
 
 # ── Google Auth ────────────────────────────────────────────────────────────────
 @st.cache_resource
@@ -67,6 +69,47 @@ def get_gc():
             f.write(creds.to_json())
     return gspread.authorize(creds)
 
+# ── Config loading (โหลดจาก Google Sheet ก่อน fallback ไฟล์ local) ──────────
+def _parse_sheet_id_simple(url: str) -> str:
+    m = re.search(r"/spreadsheets/d/([a-zA-Z0-9_-]+)", url.strip())
+    if m:
+        return m.group(1)
+    if re.match(r"^[a-zA-Z0-9_-]{20,}$", url.strip()):
+        return url.strip()
+    raise ValueError("URL ไม่ถูกต้อง")
+
+def _bootstrap_output_url() -> str:
+    try:
+        url = st.secrets.get("OUTPUT_SHEET_URL", "") or ""
+        if url.strip():
+            return url.strip()
+    except Exception:
+        pass
+    if CONFIG_PATH.exists():
+        try:
+            return json.loads(CONFIG_PATH.read_text(encoding="utf-8")).get("output_sheet_url", "")
+        except Exception:
+            pass
+    return DEFAULT_OUTPUT_URL
+
+def load_config() -> dict:
+    bootstrap_url = _bootstrap_output_url()
+    if bootstrap_url:
+        try:
+            sid = _parse_sheet_id_simple(bootstrap_url)
+            ws  = get_gc().open_by_key(sid).worksheet(CONFIG_SHEET_TAB)
+            raw = ws.cell(1, 1).value
+            if raw:
+                return json.loads(raw)
+        except Exception:
+            pass
+    if CONFIG_PATH.exists():
+        try:
+            return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {"events": [], "output_sheet_url": bootstrap_url or ""}
+
 # ── Helpers ────────────────────────────────────────────────────────────────────
 def parse_sheet_id(url: str) -> str:
     m = re.search(r"/spreadsheets/d/([a-zA-Z0-9_-]+)", url.strip())
@@ -96,21 +139,15 @@ st.set_page_config(page_title="WAKA Check-in", page_icon="🎫", layout="centere
 st.title("🎫 เช็คอิน วันงาน")
 
 # ── Load config ────────────────────────────────────────────────────────────────
-if not CONFIG_PATH.exists():
-    st.warning("ยังไม่มีการตั้งค่า — กลับหน้าหลักแล้วกด 💾 บันทึกการตั้งค่าก่อน")
-    st.stop()
-
-with open(CONFIG_PATH, encoding="utf-8") as f:
-    config = json.load(f)
-
+config     = load_config()
 events     = config.get("events", [])
 output_url = config.get("output_sheet_url", "")
 
 if not events:
-    st.warning("ยังไม่มีการแข่งขัน — ตั้งค่าในหน้าหลักก่อน")
+    st.warning("ยังไม่มีการแข่งขัน — ตั้งค่าในหน้าหลักแล้วกด 💾 บันทึกการตั้งค่าก่อน")
     st.stop()
 if not output_url:
-    st.warning("ยังไม่ได้ตั้งค่า Output Sheet — กลับหน้าหลักแล้วกรอก URL")
+    st.warning("ยังไม่ได้ตั้งค่า Output Sheet — กลับหน้าหลักแล้วกรอก URL แล้วกด 💾 บันทึก")
     st.stop()
 
 try:
