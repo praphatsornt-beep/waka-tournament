@@ -1625,9 +1625,37 @@ with tab_checkin:
     _ci_run      = st.session_state.get("run_count", 0)
     _ci_save     = st.session_state.get("save_count", 0)
 
+    _ci_col_reload, _ci_col_pad = st.columns([1, 5])
+    if _ci_col_reload.button("🔄 โหลดใหม่", key="btn_reload_checkin"):
+        for _k in ("all_results", "all_emails", "summary_data", "_ci_retry_after"):
+            st.session_state.pop(_k, None)
+        st.rerun()
+
     if not _ci_results:
-        st.info("รันตรวจสลิปก่อน หรือโหลดรายชื่อจาก tab 📋 รายชื่อ ก่อนครับ")
-    else:
+        if not output_url.strip():
+            st.info("ระบุ Output Sheet URL ในแท็บ ⚙️ ตั้งค่า ก่อน")
+        else:
+            _ci_retry_after = st.session_state.get("_ci_retry_after", 0)
+            _ci_now = time.time()
+            if _ci_now < _ci_retry_after:
+                _ci_wait = int(_ci_retry_after - _ci_now)
+                st.warning(f"Google Sheets rate limit — รอ {_ci_wait} วินาทีแล้วกด 🔄 โหลดใหม่")
+            else:
+                with st.spinner("⏳ กำลังโหลดรายชื่อ..."):
+                    _ci_load_err = _load_from_sheet(edited_df, output_url, _ci_run)
+                if _ci_load_err:
+                    if "429" in _ci_load_err:
+                        st.session_state["_ci_retry_after"] = time.time() + 60
+                        st.error("Google Sheets ถูกเรียกถี่เกินไป — รอ 1 นาทีแล้วกด 🔄 โหลดใหม่")
+                    else:
+                        st.error(f"โหลดไม่ได้: {_ci_load_err}")
+                else:
+                    _ci_results = st.session_state.get("all_results")
+                    _ci_out_id  = st.session_state.get("out_sheet_id_run")
+                    _ci_run     = st.session_state.get("run_count", 0)
+                    _ci_save    = st.session_state.get("save_count", 0)
+
+    if _ci_results:
         out_sheet_id = _ci_out_id
         run_count    = _ci_run
         save_count   = _ci_save
