@@ -70,7 +70,6 @@ def generate_qr_b64(data: str) -> str | None:
 
 SCOPES           = [
     "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/forms.body",
 ]
 TOKEN_PATH       = Path("token.json")
 CREDS_PATH       = Path("credentials.json")
@@ -287,31 +286,6 @@ def _get_creds() -> "Credentials":
 def get_gc():
     return gspread.authorize(_get_creds())
 
-@st.cache_resource
-def get_forms_service():
-    from googleapiclient.discovery import build
-    return build("forms", "v1", credentials=_get_creds())
-
-def _has_forms_scope() -> bool:
-    """ตรวจ token ปัจจุบันว่ามี forms.body scope หรือเปล่า (non-cached)"""
-    try:
-        has_secrets = "GOOGLE_TOKEN" in st.secrets
-    except Exception:
-        has_secrets = False
-    if has_secrets:
-        try:
-            scopes = json.loads(st.secrets["GOOGLE_TOKEN"]).get("scopes", [])
-            return any("forms" in s for s in scopes)
-        except Exception:
-            return False
-    if TOKEN_PATH.exists():
-        try:
-            scopes = json.loads(TOKEN_PATH.read_text()).get("scopes", [])
-            return any("forms" in s for s in scopes)
-        except Exception:
-            return False
-    return False
-
 # ── Sheets retry helper ────────────────────────────────────────────────────────
 
 def _retry_429(fn):
@@ -324,82 +298,6 @@ def _retry_429(fn):
                 time.sleep(15 * (2 ** attempt))  # 15s, 30s
             else:
                 raise
-
-# ── Google Forms creation ──────────────────────────────────────────────────────
-
-def create_google_form(event_name: str, fee_str: str) -> dict:
-    """สร้าง Google Form สำหรับรับสมัคร คืน {form_id, form_url, edit_url}"""
-    svc = get_forms_service()
-
-    form = svc.forms().create(body={
-        "info": {
-            "title":         f"สมัครแข่งขัน {event_name}",
-            "documentTitle": f"สมัครแข่งขัน {event_name}",
-        }
-    }).execute()
-    form_id = form["formId"]
-
-    questions = [
-        {
-            "title":       "ชื่อที่ใช้แข่ง (In Game Name / Trainer ID)",
-            "description": "ชื่อที่จะแสดงในตาราง bracket",
-            "required":    True,
-        },
-        {
-            "title":       "ชื่อบัญชีธนาคารที่ใช้โอนเงิน",
-            "description": "ชื่อที่ปรากฏในแอปธนาคาร — ใช้ตรวจสอบการชำระ",
-            "required":    True,
-        },
-        {
-            "title":       "ชื่อ Facebook",
-            "description": "สำหรับติดต่อในกรณีจำเป็น",
-            "required":    False,
-        },
-        {
-            "title":       "อีเมล (สำหรับรับ QR Code เข้างาน)",
-            "description": "จะใช้ส่ง QR Code ยืนยันการสมัครให้คุณ",
-            "required":    True,
-        },
-        {
-            "title":       f"ลิงก์สลิปการโอนเงิน ค่าสมัคร {fee_str}฿",
-            "description": (
-                "1) โอนเงินให้เรียบร้อย\n"
-                "2) ถ่ายรูปหรือ screenshot สลิป แล้วอัปโหลดลง Google Drive\n"
-                "3) คลิกขวา → Share → 'Anyone with the link' → Copy link มาวางที่นี่"
-            ),
-            "required":    True,
-        },
-    ]
-
-    requests = [
-        {
-            "createItem": {
-                "item": {
-                    "title":       q["title"],
-                    "description": q["description"],
-                    "questionItem": {
-                        "question": {
-                            "required":     q["required"],
-                            "textQuestion": {"paragraph": False},
-                        }
-                    },
-                },
-                "location": {"index": i},
-            }
-        }
-        for i, q in enumerate(questions)
-    ]
-
-    svc.forms().batchUpdate(
-        formId=form_id,
-        body={"requests": requests},
-    ).execute()
-
-    return {
-        "form_id":  form_id,
-        "form_url": f"https://docs.google.com/forms/d/{form_id}/viewform",
-        "edit_url": f"https://docs.google.com/forms/d/{form_id}/edit",
-    }
 
 # ── Matching logic ─────────────────────────────────────────────────────────────
 
