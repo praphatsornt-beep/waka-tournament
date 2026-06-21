@@ -1,0 +1,129 @@
+# WAKA — สิ่งที่ต้องทำ
+
+---
+
+## 📦 ระบบออเดอร์การ์ด (ก่อนใช้งานจริง)
+
+### 1. Deploy GAS ล่าสุด
+- [ ] Copy โค้ดจาก `gas/Code.gs` ไปวางใน GAS editor ทั้งหมด
+- [ ] Deploy → Manage deployments → Edit → **New version** → Deploy
+- [ ] ตรวจว่า GAS URL ใน LIFF ตรงกับ deployment ล่าสุด
+
+### 2. Push LIFF ขึ้น Vercel
+- [ ] `cd liff && git add . && git commit -m "update" && git push`
+- [ ] รอ 1-2 นาที Vercel auto deploy
+
+### 3. กรอกข้อมูลใน Google Sheet
+
+#### _catalog — สินค้า
+- [ ] ใส่ทุกสินค้า: name, category, price_box, price_pack, active (TRUE), image_url
+- [ ] รูปใน Google Drive ต้อง Share "Anyone with the link"
+
+#### stock — สต็อกกลาง (tab สร้างแล้ว)
+- [ ] ใส่จำนวนสต็อก: name (ต้องตรง _catalog), category, qty_box, qty_pack
+
+#### _config — ข้อมูลร้าน
+- [ ] `bank_name` — ชื่อธนาคาร
+- [ ] `bank_account` — เลขบัญชี (ใช้เทียบสลิป ต้องถูกต้อง)
+- [ ] `bank_account_name` — ชื่อบัญชี
+- [ ] `delivery_fee` — ค่าจัดส่ง (เช่น 50)
+- [ ] `group_staff` — Group ID กลุ่ม Line staff (ดูขั้นตอนข้อ 4)
+
+### 4. ตั้ง Line Webhook + จับ Group ID
+- [ ] LINE Developers → Waka Space → Messaging API tab
+- [ ] Webhook URL ใส่ GAS URL ปัจจุบัน
+- [ ] เปิด Use webhook
+- [ ] เพิ่มบอท Waka Space เข้ากลุ่ม Line staff
+- [ ] ส่งข้อความอะไรก็ได้ในกลุ่ม
+- [ ] เปิด Sheet → _config → เห็น `group_NEW_xxxx` → แก้ key เป็น `group_staff`
+
+### 5. ลบ tab สต็อกเก่า
+- [ ] ลบ `stock_tonsak`
+- [ ] ลบ `stock_muangthong`
+- [ ] ลบ `stock_srinakarin`
+
+### 6. ตั้ง Rich Menu ใน Line OA
+- [ ] Line Official Account Manager → Rich Menu
+- [ ] ลิงค์ไปที่: `https://liff.line.me/2010457385-UpJLXxJ0`
+
+---
+
+## GAS Script Properties (ต้องมีทั้งหมด)
+
+| Key | Value | สถานะ |
+|-----|-------|-------|
+| LINE_TOKEN | Channel Access Token | ✅ มีแล้ว |
+| SHEET_ID | `1aUHbSt3qlQ4uMIzlCGbF-iFm0AqSeqx12nxk5ny1JoY` | ✅ มีแล้ว |
+| SLIP_FOLDER_ID | `1-H0ULQEF79zYAOFTFfIKglc2wbQLJo5B` | ✅ มีแล้ว |
+| CLAUDE_KEY | API key จาก console.anthropic.com | ✅ มีแล้ว (เติม $5 แล้ว) |
+
+---
+
+## Flow ระบบ
+
+```
+ลูกค้าเปิด LIFF → เลือกสินค้า (Box/Pack) → เลือกสาขา/จัดส่ง → แนบสลิป → สั่งซื้อ
+    ↓
+GAS → ตัดสต็อกกลาง → บันทึกสลิปลง Drive → Claude ตรวจสลิป 4 ชั้น → บันทึก Sheet
+    ↓
+แจ้ง Line กลุ่ม staff (พร้อมลิงค์จัดการ) + แจ้งลูกค้าพร้อมสถานะ
+    ↓
+Staff กดลิงค์ใน Line (ไม่ต้องเปิด Streamlit):
+  📤 จัดส่งไปสาขาแล้ว → 📍 ถึงสาขา/พร้อมรับ → 🤝 ส่งมอบ
+    ↓
+ลูกค้ากดลิงค์ยืนยันรับของ (เห็น Timeline สถานะ) → ✅ เสร็จสิ้น
+```
+
+## การตรวจสลิป (Claude AI — 4 ชั้น)
+
+1. อ่านสลิปได้ไหม → ถ้าไม่ได้ → "รอตรวจ" (admin ตรวจเอง)
+2. เลขอ้างอิงซ้ำไหม → "สลิปซ้ำ"
+3. บัญชีปลายทางตรงกับร้านไหม → "บัญชีไม่ตรง"
+4. ยอดตรงกับออเดอร์ไหม → "ยอดไม่ตรง" หรือ "ยืนยัน"
+
+---
+
+## ไฟล์สำคัญ
+
+| ไฟล์ | คำอธิบาย | Deploy ที่ไหน |
+|------|----------|--------------|
+| `gas/Code.gs` | GAS backend | Copy วางใน GAS editor |
+| `liff/index.html` | LIFF frontend ลูกค้า | Vercel (auto deploy จาก GitHub) |
+| `tools/pages/orders.py` | Admin dashboard | Streamlit |
+| `tools/verify_app.py` | Streamlit main app | Streamlit |
+
+---
+
+## Bug ที่แก้แล้ว (รอ deploy)
+
+- [x] writeOrder ไม่สร้างคอลัมน์ fulfillment ใน header → เพิ่มแล้ว
+- [x] handleStaffPage ไม่เช็ค col() = -1 → เพิ่ม guard แล้ว
+- [x] Delivery flow set "สาขายืนยัน" แทน "จัดส่งแล้ว" → แก้แล้ว
+- [x] Order ID ซ้ำง่าย (random 0-99) → เพิ่มวินาที + random 0-999
+- [x] notifyCustomer ส่ง slipBase64 ทั้งก้อน → ส่งเฉพาะ field ที่ใช้
+- [x] fulfill_icon ไม่ครอบคลุมสถานะ → เพิ่มครบแล้ว
+
+## Bug ที่ยังไม่ได้แก้
+
+- [ ] **LIFF ไม่ reset ฟอร์ม** — หลังสั่งสำเร็จถ้าไม่ปิด LIFF สามารถสั่งซ้ำได้
+- [ ] **LIFF ไม่ validate เบอร์โทร** — ใส่ตัวอักษรก็ผ่าน ควรเช็ค format
+- [ ] **LIFF โหลดช้า** — GAS doGet ใช้เวลา ~2-3 วินาที (ข้อจำกัดของ GAS)
+- [ ] **orders.py timezone** — ใช้ local time แทน Asia/Bangkok อาจผิดบน Streamlit Cloud
+- [ ] **encodeKey อาจชนกัน** — ชื่อสินค้าที่ต่างกันแต่ตัวอักษรคล้ายกันอาจได้ key เดียวกัน
+
+## รอทำทีหลัง
+
+- [ ] **ที่อยู่จัดส่งแบบ filter** — ทำแล้ว dropdown จังหวัด/อำเภอ/ตำบล/รหัสไปรษณีย์ (รอ push + deploy)
+- [ ] **Claude Design** — ออกแบบ UI/UX ด้วย Claude
+
+---
+
+## ระบบเดิม (Tournament)
+
+### ✅ ทำแล้ว
+- Tab ตั้งค่า, ตรวจสลิป, รายชื่อ, ประกาศ, อีเมล, เช็คอิน
+- ตรวจสลิปซ้ำ, Admin override, บันทึกรายละเอียดงาน
+
+### รอทำ
+- Config persistence → save config ลง Google Sheet แทน JSON (ทำบางส่วนแล้ว)
+- Google Forms สร้างอัตโนมัติ → รอ OAuth scope `forms.body` (ดู memory)

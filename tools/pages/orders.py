@@ -20,16 +20,14 @@ except ImportError as e:
     st.error(f"ติดตั้ง packages ก่อน: `pip install -r requirements.txt`\n\n{e}")
     st.stop()
 
-# ── Constants ─────────────────────────────────────────────────────────────────
 SCOPES     = ["https://www.googleapis.com/auth/spreadsheets"]
 TOKEN_PATH = Path("token.json")
-CREDS_PATH = Path("credentials.json")
+SHEET_ID   = "1aUHbSt3qlQ4uMIzlCGbF-iFm0AqSeqx12nxk5ny1JoY"
 
-BRANCHES   = ["ต้นสัก", "เมืองทอง", "ศรีนครินทร์", "จัดส่งพัสดุ"]
-STATUS_OK  = "✅ ยืนยันแล้ว"
-COL_SLIP   = "slip_status"
+BRANCHES   = ["ต้นสัก", "เมืองทอง", "ศรีนครินทร์", "จัดส่ง"]
+ALL_STATUS = ["รอตรวจ", "ยืนยัน", "ยอดไม่ตรง", "สลิปซ้ำ", "บัญชีไม่ตรง", "สงสัยปลอม", "ยกเลิก", "ไม่มีสลิป"]
 
-# ── Auth (ใช้ get_gc เดียวกับ verify_app) ────────────────────────────────────
+# ── Auth ──────────────────────────────────────────────────────────────────────
 @st.cache_resource
 def get_gc():
     try:
@@ -56,25 +54,82 @@ def get_gc():
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            raise RuntimeError("ไม่พบ token.json หรือ GOOGLE_TOKEN ใน Secrets")
+            raise RuntimeError("ไม่พบ token.json")
     return gspread.authorize(creds)
 
 
-def load_orders(sheet_id: str) -> pd.DataFrame:
+@st.cache_data(ttl=60)
+def load_orders() -> pd.DataFrame:
     try:
-        ws   = get_gc().open_by_key(sheet_id).worksheet("orders")
+        ws   = get_gc().open_by_key(SHEET_ID).worksheet("orders")
         rows = ws.get_all_values()
         if len(rows) < 2:
             return pd.DataFrame()
         df = pd.DataFrame(rows[1:], columns=rows[0])
-        df["total"] = pd.to_numeric(df["total"], errors="coerce").fillna(0)
-        df["slip_amount"] = pd.to_numeric(df["slip_amount"], errors="coerce").fillna(0)
-        df["timestamp_dt"] = pd.to_datetime(df["timestamp"], errors="coerce")
-        df["date"] = df["timestamp_dt"].dt.date
+        df["total"]        = pd.to_numeric(df.get("total", 0), errors="coerce").fillna(0)
+        df["slip_amount"]  = pd.to_numeric(df.get("slip_amount", 0), errors="coerce").fillna(0)
+        df["timestamp_dt"] = pd.to_datetime(df.get("timestamp", ""), errors="coerce", utc=True)
+        df["date"]         = df["timestamp_dt"].dt.tz_convert("Asia/Bangkok").dt.date
+        df["row_num"]      = range(2, len(df) + 2)  # แถวจริงใน Sheet (1-indexed + header)
         return df
     except Exception as e:
         st.error(f"โหลด orders ไม่ได้: {e}")
         return pd.DataFrame()
+
+
+def update_slip_status(row_num: int, status: str, amount: str = "", note: str = ""):
+    ws = get_gc().open_by_key(SHEET_ID).worksheet("orders")
+    rows = ws.get_all_values()
+    hdr  = rows[0]
+    status_col = hdr.index("slip_status") + 1 if "slip_status" in hdr else None
+    amount_col = hdr.index("slip_amount") + 1 if "slip_amount" in hdr else None
+    notes_col  = hdr.index("notes")       + 1 if "notes"       in hdr else None
+    if status_col:
+        ws.update_cell(row_num, status_col, status)
+    if amount_col and amount:
+        ws.update_cell(row_num, amount_col, amount)
+    if notes_col and note:
+        ws.update_cell(row_num, notes_col, note)
+
+
+def update_fulfillment(row_num: int, status: str):
+    from datetime import datetime
+    ws = get_gc().open_by_key(SHEET_ID).worksheet("orders")
+    hdr = ws.row_values(1)
+    ff_col = hdr.index("fulfillment") + 1 if "fulfillment" in hdr else None
+    at_col = hdr.index("fulfilled_at") + 1 if "fulfilled_at" in hdr else None
+    if ff_col:
+        ws.update_cell(row_num, ff_col, status)
+    if at_col:
+        ws.update_cell(row_num, at_col, datetime.now().strftime("%Y-%m-%d %H:%M"))
+
+
+def staff_confirm_handover(row_num: int):
+    from datetime import datetime
+    ws = get_gc().open_by_key(SHEET_ID).worksheet("orders")
+    hdr = ws.row_values(1)
+    col = hdr.index("staff_confirmed_at") + 1 if "staff_confirmed_at" in hdr else None
+    ff_col = hdr.index("fulfillment") + 1 if "fulfillment" in hdr else None
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    if col:
+        ws.update_cell(row_num, col, now)
+    if ff_col:
+        ws.update_cell(row_num, ff_col, "สาขายืนยัน")
+    return now
+
+
+GAS_URL = "https://script.google.com/macros/s/AKfycbz52wvADM7O1zMjqKlT2G4HPkq8gwAon_fUCuKgbmUMkDPQkaYKUWnv598U3EkFN1AByQ/exec"
+
+def send_line_notify(order_id: str, line_user_id: str, msg_type: str):
+    import requests
+    confirm_url = GAS_URL + "?action=confirm&order=" + order_id
+    requests.post(GAS_URL, json={
+        "_action": "sendConfirmLink",
+        "lineUserId": line_user_id,
+        "orderId": order_id,
+        "confirmUrl": confirm_url,
+        "msgType": msg_type,
+    }, timeout=15)
 
 
 def parse_items(items_json: str) -> list:
@@ -84,166 +139,207 @@ def parse_items(items_json: str) -> list:
         return []
 
 
-# ── Page ──────────────────────────────────────────────────────────────────────
-st.set_page_config(page_title="Orders Dashboard", page_icon="🛒", layout="wide")
+def items_text(items: list) -> str:
+    lines = []
+    for i in items:
+        unit = "กล่อง" if i.get("type") == "box" else "ซอง"
+        lines.append(f"• {i.get('name','')} ({unit}) ×{i.get('qty',1)} = {i.get('price',0)*i.get('qty',1):,} บาท")
+    return "\n".join(lines)
+
+
+def status_color(s: str) -> str:
+    if "ยืนยัน" in s:     return "🟢"
+    if "รอตรวจ" in s:     return "🟡"
+    if "ยอดไม่ตรง" in s:  return "🟠"
+    if "สลิปซ้ำ" in s:    return "🔴"
+    if "บัญชีไม่ตรง" in s: return "🔴"
+    if "สงสัยปลอม" in s:  return "🔴"
+    if "ยกเลิก" in s:     return "🔴"
+    return "⚪"
+
+def needs_attention(s: str) -> bool:
+    return s in ("รอตรวจ", "ยอดไม่ตรง", "สลิปซ้ำ", "บัญชีไม่ตรง", "สงสัยปลอม")
+
+def fulfill_icon(s: str) -> str:
+    if s == "รับแล้ว":            return "✅"
+    if s == "สาขายืนยัน":        return "🤝"
+    if s == "จัดส่งแล้ว":         return "📦"
+    if s == "พร้อมรับ":           return "📍"
+    if s == "กำลังจัดส่งไปสาขา":  return "🚚"
+    return "⏳"
+
+
+# ── Page config ───────────────────────────────────────────────────────────────
+st.set_page_config(page_title="Orders", page_icon="🛒", layout="wide")
 st.title("🛒 ออเดอร์การ์ดเกม")
 
-# ── Sheet ID input ────────────────────────────────────────────────────────────
+# ── Sidebar filters ───────────────────────────────────────────────────────────
 with st.sidebar:
-    st.header("⚙️ ตั้งค่า")
-    sheet_url = st.text_input(
-        "Orders Sheet URL",
-        value=st.session_state.get("order_sheet_url", ""),
-        placeholder="https://docs.google.com/spreadsheets/d/...",
-    )
-    if sheet_url:
-        m = re.search(r"/spreadsheets/d/([a-zA-Z0-9_-]+)", sheet_url)
-        if m:
-            st.session_state["order_sheet_url"] = sheet_url
-            sheet_id = m.group(1)
-        else:
-            st.error("URL ไม่ถูกต้อง")
-            st.stop()
-    else:
-        st.info("ใส่ URL ของ Google Sheet ที่เก็บ orders")
-        st.stop()
-
+    st.header("🔍 กรอง")
     if st.button("🔄 โหลดใหม่"):
         st.cache_data.clear()
         st.rerun()
 
-# ── Load ──────────────────────────────────────────────────────────────────────
-@st.cache_data(ttl=120)
-def _load(sid):
-    return load_orders(sid)
-
-df = _load(sheet_id)
-if df.empty:
-    st.info("ยังไม่มีออเดอร์")
-    st.stop()
-
-# ── Filters ───────────────────────────────────────────────────────────────────
-with st.sidebar:
-    st.divider()
-    st.subheader("🔍 กรอง")
     date_range = st.date_input(
         "ช่วงวันที่",
         value=(date.today() - timedelta(days=7), date.today()),
     )
-    branch_filter = st.multiselect("สาขา", BRANCHES, default=BRANCHES)
-    status_filter = st.multiselect(
-        "สถานะสลิป",
-        df[COL_SLIP].unique().tolist(),
-        default=df[COL_SLIP].unique().tolist(),
-    )
+    branch_filter = st.multiselect("สาขา / จัดส่ง", BRANCHES, default=BRANCHES)
+    status_filter = st.multiselect("สถานะสลิป", ALL_STATUS, default=ALL_STATUS)
+    search = st.text_input("ค้นหาชื่อ / เบอร์ / เลขออเดอร์", "")
 
-# Apply filters
+# ── Load ──────────────────────────────────────────────────────────────────────
+df = load_orders()
+if df.empty:
+    st.info("ยังไม่มีออเดอร์")
+    st.stop()
+
+# ── Filter ────────────────────────────────────────────────────────────────────
 filtered = df.copy()
 if len(date_range) == 2:
-    filtered = filtered[
-        (filtered["date"] >= date_range[0]) &
-        (filtered["date"] <= date_range[1])
-    ]
-for branch in BRANCHES:
-    pass
-filtered = filtered[filtered["pickup"].str.contains("|".join(branch_filter), na=False, regex=False) if branch_filter else True]
-filtered = filtered[filtered[COL_SLIP].isin(status_filter)] if status_filter else filtered
+    filtered = filtered[(filtered["date"] >= date_range[0]) & (filtered["date"] <= date_range[1])]
+if branch_filter:
+    filtered = filtered[filtered["branch"].isin(branch_filter)]
+if status_filter:
+    filtered = filtered[filtered["slip_status"].isin(status_filter)]
+if search:
+    s = search.lower()
+    mask = (
+        filtered.get("real_name", pd.Series(dtype=str)).str.lower().str.contains(s, na=False) |
+        filtered.get("phone",     pd.Series(dtype=str)).str.lower().str.contains(s, na=False) |
+        filtered.get("order_id",  pd.Series(dtype=str)).str.lower().str.contains(s, na=False) |
+        filtered.get("display_name", pd.Series(dtype=str)).str.lower().str.contains(s, na=False)
+    )
+    filtered = filtered[mask]
+
+filtered = filtered.sort_values("timestamp_dt", ascending=False).reset_index(drop=True)
 
 # ── KPI ───────────────────────────────────────────────────────────────────────
-confirmed = filtered[filtered[COL_SLIP].str.contains("✅", na=False, regex=False)]
-pending   = filtered[~filtered[COL_SLIP].str.contains("✅", na=False, regex=False)]
+confirmed = filtered[filtered["slip_status"] == "ยืนยัน"]
+pending   = filtered[filtered["slip_status"] == "รอตรวจ"]
+problems  = filtered[filtered["slip_status"].isin(["ยอดไม่ตรง", "สลิปซ้ำ", "บัญชีไม่ตรง"])]
 
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("ออเดอร์ทั้งหมด", len(filtered))
-c2.metric("ยืนยันแล้ว ✅", len(confirmed))
-c3.metric("รอตรวจ ⏳", len(pending))
-c4.metric("ยอดรวม (ยืนยันแล้ว)", f"฿{confirmed['total'].sum():,.0f}")
+c1, c2, c3, c4, c5 = st.columns(5)
+c1.metric("ทั้งหมด", len(filtered))
+c2.metric("ยืนยัน 🟢", len(confirmed))
+c3.metric("รอตรวจ 🟡", len(pending))
+c4.metric("ปัญหา 🔴", len(problems))
+c5.metric("ยอดรวม (ยืนยัน)", f"฿{confirmed['total'].sum():,.0f}")
 
 st.divider()
 
-# ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_orders, tab_branch, tab_report = st.tabs(["📋 รายการออเดอร์", "🏪 สรุปต่อสาขา", "📊 รายงาน"])
+# ── Order cards ───────────────────────────────────────────────────────────────
+if filtered.empty:
+    st.info("ไม่มีออเดอร์ตามเงื่อนไขที่เลือก")
+    st.stop()
 
-# ── Tab: รายการออเดอร์ ────────────────────────────────────────────────────────
-with tab_orders:
-    show_cols = ["order_id", "date", "display_name", "nickname", "real_name",
-                 "pickup", "total", COL_SLIP, "slip_amount", "notes"]
-    show_cols = [c for c in show_cols if c in filtered.columns]
-    display_df = filtered[show_cols].sort_values("date", ascending=False).reset_index(drop=True)
-    st.dataframe(
-        display_df,
-        column_config={
-            "order_id":    st.column_config.TextColumn("เลขออเดอร์", width="medium"),
-            "date":        st.column_config.DateColumn("วันที่"),
-            "display_name":st.column_config.TextColumn("Line Name"),
-            "nickname":    st.column_config.TextColumn("ชื่อเล่น"),
-            "real_name":   st.column_config.TextColumn("ชื่อจริง"),
-            "pickup":      st.column_config.TextColumn("สาขา/จัดส่ง"),
-            "total":       st.column_config.NumberColumn("ยอด (฿)", format="฿%.0f"),
-            COL_SLIP:      st.column_config.TextColumn("สถานะสลิป"),
-            "slip_amount": st.column_config.NumberColumn("ยอดในสลิป (฿)", format="฿%.0f"),
-            "notes":       st.column_config.TextColumn("หมายเหตุ"),
-        },
-        hide_index=True,
-        use_container_width=True,
-    )
+for _, row in filtered.iterrows():
+    items   = parse_items(row.get("items_json", ""))
+    is_del  = row.get("branch", "") == "จัดส่ง"
+    s_icon  = status_color(row.get("slip_status", ""))
+    label   = f"{s_icon} #{row.get('order_id','')}  |  {row.get('real_name','?')}  |  {row.get('branch','')}  |  ฿{int(row.get('total',0)):,}  |  {row.get('date','')}"
 
-    if st.button("⬇️ Export CSV"):
-        csv = display_df.to_csv(index=False, encoding="utf-8-sig")
-        st.download_button("ดาวน์โหลด", csv, "orders.csv", "text/csv")
+    ff_status = row.get("fulfillment", "") or "รอเตรียม"
+    ff_time   = row.get("fulfilled_at", "")
+    ff_icon   = fulfill_icon(ff_status)
 
-# ── Tab: สรุปต่อสาขา ─────────────────────────────────────────────────────────
-with tab_branch:
-    for branch in BRANCHES:
-        bdf = filtered[filtered["pickup"].str.contains(branch, na=False, regex=False)]
-        if bdf.empty:
-            continue
-        b_confirmed = bdf[bdf[COL_SLIP].str.contains("✅", na=False, regex=False)]
-        with st.expander(f"🏪 {branch} — {len(bdf)} ออเดอร์ (ยืนยัน {len(b_confirmed)})", expanded=True):
-            cols = ["order_id", "date", "display_name", "nickname", "real_name", "total", COL_SLIP]
-            cols = [c for c in cols if c in bdf.columns]
-            st.dataframe(
-                bdf[cols].sort_values("date", ascending=False).reset_index(drop=True),
-                hide_index=True,
-                use_container_width=True,
+    with st.expander(label, expanded=needs_attention(row.get("slip_status", ""))):
+        col_info, col_items, col_action = st.columns([2, 2, 2])
+
+        # ── ข้อมูลลูกค้า
+        with col_info:
+            st.markdown("**👤 ข้อมูลลูกค้า**")
+            st.markdown(f"ชื่อจริง: **{row.get('real_name','—')}**")
+            st.markdown(f"Line: {row.get('display_name','—')}")
+            st.markdown(f"โทร: {row.get('phone','—')}")
+            st.divider()
+            if is_del:
+                st.markdown("🚚 **จัดส่งพัสดุ**")
+                st.markdown(f"ที่อยู่: {row.get('address','—')}")
+            else:
+                st.markdown(f"📦 รับที่สาขา: **{row.get('branch','—')}**")
+
+        # ── รายการสินค้า
+        with col_items:
+            st.markdown("**🎴 รายการสินค้า**")
+            if items:
+                for i in items:
+                    unit = "กล่อง" if i.get("type") == "box" else "ซอง"
+                    st.markdown(f"• {i.get('name','')} ({unit}) ×{i.get('qty',1)} = **{i.get('price',0)*i.get('qty',1):,} บาท**")
+            else:
+                st.markdown("—")
+            st.divider()
+            st.markdown(f"**ยอดรวม: ฿{int(row.get('total',0)):,}**")
+
+        # ── อัปเดตสถานะ
+        with col_action:
+            st.markdown("**🧾 สถานะสลิป**")
+            cur_status = row.get("slip_status", "รอตรวจ")
+            st.markdown(f"ปัจจุบัน: {s_icon} **{cur_status}**")
+            if row.get("slip_amount", 0):
+                st.markdown(f"ยอดในสลิป: ฿{int(row.get('slip_amount',0)):,}")
+            if row.get("notes"):
+                st.markdown(f"หมายเหตุ: {row.get('notes')}")
+            slip_url = row.get("slip_url", "")
+            if slip_url and slip_url.startswith("http"):
+                st.markdown("**รูปสลิป:**")
+                st.image(slip_url, width=220)
+
+            st.divider()
+            new_status = st.selectbox(
+                "เปลี่ยนสถานะ",
+                ALL_STATUS,
+                index=ALL_STATUS.index(cur_status) if cur_status in ALL_STATUS else 0,
+                key=f"status_{row.get('order_id')}",
             )
-            st.caption(f"ยอดรวมยืนยัน: ฿{b_confirmed['total'].sum():,.0f}")
+            new_note = st.text_input("หมายเหตุ", key=f"note_{row.get('order_id')}", placeholder="เช่น โอนไม่ครบ")
 
-# ── Tab: รายงาน ───────────────────────────────────────────────────────────────
-with tab_report:
-    st.subheader("ยอดขายต่อวัน")
-    daily = (
-        confirmed.groupby("date")["total"].sum()
-        .reset_index()
-        .rename(columns={"total": "ยอด (฿)"})
-        .sort_values("date")
-    )
-    if not daily.empty:
-        st.bar_chart(daily.set_index("date"))
+            if st.button("💾 บันทึกสถานะสลิป", key=f"save_{row.get('order_id')}"):
+                try:
+                    update_slip_status(int(row["row_num"]), new_status, "", new_note)
+                    st.success("บันทึกแล้ว")
+                    st.cache_data.clear()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"บันทึกไม่ได้: {e}")
 
-    st.subheader("ยอดขายต่อสาขา")
-    branch_sum = (
-        confirmed.groupby("pickup")["total"].agg(["sum", "count"])
-        .reset_index()
-        .rename(columns={"pickup": "สาขา", "sum": "ยอดรวม (฿)", "count": "จำนวนออเดอร์"})
-        .sort_values("ยอดรวม (฿)", ascending=False)
-    )
-    st.dataframe(branch_sum, hide_index=True, use_container_width=True)
+            st.divider()
+            st.markdown("**📦 สถานะจัดส่ง**")
+            staff_at = row.get("staff_confirmed_at", "")
+            cust_at  = row.get("customer_confirmed_at", "")
+            oid      = row.get("order_id", "")
+            uid      = row.get("line_user_id", "")
 
-    st.subheader("สินค้าขายดี")
-    item_rows = []
-    for _, row in confirmed.iterrows():
-        for item in parse_items(row.get("items_json", "")):
-            item_rows.append({
-                "สินค้า": item.get("name", ""),
-                "จำนวน": item.get("qty", 0),
-                "ยอด (฿)": item.get("qty", 0) * item.get("price", 0),
-            })
-    if item_rows:
-        item_df = (
-            pd.DataFrame(item_rows)
-            .groupby("สินค้า")[["จำนวน", "ยอด (฿)"]].sum()
-            .reset_index()
-            .sort_values("ยอด (฿)", ascending=False)
-        )
-        st.dataframe(item_df, hide_index=True, use_container_width=True)
+            if staff_at and cust_at:
+                st.success(f"✅ เสร็จสิ้น — ทั้ง 2 ฝ่ายยืนยันแล้ว")
+                st.caption(f"สาขา: {staff_at} | ลูกค้า: {cust_at}")
+            elif row.get("slip_status") != "ยืนยัน":
+                st.caption("ต้องยืนยันสลิปก่อน")
+            elif ff_status == "รอเตรียม":
+                if is_del:
+                    if st.button("🚚 จัดส่งแล้ว", key=f"ship_{oid}"):
+                        update_fulfillment(int(row["row_num"]), "จัดส่งแล้ว")
+                        send_line_notify(oid, uid, "shipped")
+                        st.cache_data.clear(); st.rerun()
+                else:
+                    if st.button("📤 จัดส่งไปสาขา", key=f"tobrch_{oid}"):
+                        update_fulfillment(int(row["row_num"]), "กำลังจัดส่งไปสาขา")
+                        send_line_notify(oid, uid, "shipped")
+                        st.cache_data.clear(); st.rerun()
+            elif ff_status == "กำลังจัดส่งไปสาขา":
+                st.info("สินค้ากำลังไปสาขา")
+                if st.button("📍 ถึงสาขาแล้ว / พร้อมรับ", key=f"ready_{oid}"):
+                    update_fulfillment(int(row["row_num"]), "พร้อมรับ")
+                    send_line_notify(oid, uid, "ready")
+                    st.cache_data.clear(); st.rerun()
+            elif ff_status == "พร้อมรับ":
+                st.warning("รอลูกค้ามารับ — แจ้ง Line แล้ว")
+                if st.button("🤝 ส่งมอบสินค้า", key=f"hand_{oid}"):
+                    staff_confirm_handover(int(row["row_num"]))
+                    send_line_notify(oid, uid, "handover")
+                    st.cache_data.clear(); st.rerun()
+            elif ff_status in ("สาขายืนยัน", "จัดส่งแล้ว"):
+                st.warning("รอลูกค้ากดยืนยันรับ")
+                st.caption(f"สาขายืนยัน: {staff_at}")
+            else:
+                st.markdown(f"สถานะ: {ff_status}")
