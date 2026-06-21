@@ -115,7 +115,18 @@ Staff กดลิงค์ใน Line (ไม่ต้องเปิด Stream
 
 - [ ] **ที่อยู่จัดส่งแบบ filter** — ทำแล้ว dropdown จังหวัด/อำเภอ/ตำบล/รหัสไปรษณีย์ (รอ push + deploy)
 - [ ] **Claude Design** — ออกแบบ UI/UX ด้วย Claude
-- [ ] **SlipOK API** — verify QR บนสลิปกับธนาคาร (แม่นกว่า Claude อ่านรูป) มี free tier
+- [ ] **SlipOK API** — ✅ ทำแล้ว (free 100 ครั้ง/เดือน, fallback Claude)
+
+### Presentation สำหรับเจ้าของร้าน
+ไปทำใน **claude.ai** (ไม่ใช่ Claude Design) โดยพิมพ์ prompt:
+1. สร้าง presentation สวยๆ ระบบสั่งซื้อ WAKA SPACE
+2. แสดง flow: ลูกค้าสั่ง → ตรวจสลิป → staff จัดส่ง → ลูกค้ารับ
+3. ตัวอย่างหน้าจอ: LIFF, LINE messages, Staff page, Timeline
+4. ข้อความ LINE ที่ลูกค้าได้รับ (ยืนยันออเดอร์, ทวนที่อยู่, แจ้งสถานะ)
+5. การป้องกันโกง: SlipOK QR verify, สลิปซ้ำ, Claude AI
+6. ค่าใช้จ่าย: ฟรีเกือบทั้งหมด
+7. สไตล์: โทนเทาเข้ม + เบจ ตาม branding WAKA SPACE
+- Claude จะสร้าง Artifact ให้ดู preview ได้ทันที
 - [ ] **Bank API** — เช็คยอดเข้าบัญชีจริง 100% ต้องจดทะเบียนกับธนาคาร
 
 ### สิทธิ์และการจัดส่งสินค้าไปสาขา (ยังไม่ได้ทำ)
