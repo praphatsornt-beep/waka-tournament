@@ -244,48 +244,36 @@ for _, row in filtered.iterrows():
     ff_icon   = fulfill_icon(ff_status)
 
     with st.expander(label, expanded=needs_attention(row.get("slip_status", ""))):
-        col_info, col_items, col_action = st.columns([2, 2, 2])
+        # ── บรรทัดที่ 1: ลูกค้า + สาขา
+        cur_status = row.get("slip_status", "รอตรวจ")
+        info_parts = [
+            f"👤 **{row.get('real_name','—')}** ({row.get('display_name','—')})",
+            f"📱 {row.get('phone','—')}",
+            f"{'🚚 จัดส่ง' if is_del else '📦 ' + row.get('branch','—')}",
+            f"{s_icon} {cur_status}",
+        ]
+        st.markdown(" · ".join(info_parts))
+        if is_del and row.get("address"):
+            st.caption(f"ที่อยู่: {row.get('address')}")
 
-        # ── ข้อมูลลูกค้า
-        with col_info:
-            st.markdown("**👤 ข้อมูลลูกค้า**")
-            st.markdown(f"ชื่อจริง: **{row.get('real_name','—')}**")
-            st.markdown(f"Line: {row.get('display_name','—')}")
-            st.markdown(f"โทร: {row.get('phone','—')}")
-            st.divider()
-            if is_del:
-                st.markdown("🚚 **จัดส่งพัสดุ**")
-                st.markdown(f"ที่อยู่: {row.get('address','—')}")
-            else:
-                st.markdown(f"📦 รับที่สาขา: **{row.get('branch','—')}**")
+        # ── บรรทัดที่ 2: สินค้า (inline)
+        if items:
+            items_str = " | ".join([f"{i.get('name','')} ({'กล่อง' if i.get('type')=='box' else 'ซอง'}) ×{i.get('qty',1)} = ฿{i.get('price',0)*i.get('qty',1):,}" for i in items])
+            st.markdown(f"🎴 {items_str} → **฿{int(row.get('total',0)):,}**")
 
-        # ── รายการสินค้า
-        with col_items:
-            st.markdown("**🎴 รายการสินค้า**")
-            if items:
-                for i in items:
-                    unit = "กล่อง" if i.get("type") == "box" else "ซอง"
-                    st.markdown(f"• {i.get('name','')} ({unit}) ×{i.get('qty',1)} = **{i.get('price',0)*i.get('qty',1):,} บาท**")
-            else:
-                st.markdown("—")
-            st.divider()
-            st.markdown(f"**ยอดรวม: ฿{int(row.get('total',0)):,}**")
+        # ── บรรทัดที่ 3: สลิป + หมายเหตุ
+        if row.get("slip_amount", 0):
+            st.caption(f"ยอดในสลิป: ฿{int(row.get('slip_amount',0)):,}")
+        if row.get("notes"):
+            st.caption(f"📝 {row.get('notes')}")
 
-        # ── อัปเดตสถานะ
-        with col_action:
-            st.markdown("**🧾 สถานะสลิป**")
-            cur_status = row.get("slip_status", "รอตรวจ")
-            st.markdown(f"ปัจจุบัน: {s_icon} **{cur_status}**")
-            if row.get("slip_amount", 0):
-                st.markdown(f"ยอดในสลิป: ฿{int(row.get('slip_amount',0)):,}")
-            if row.get("notes"):
-                st.markdown(f"หมายเหตุ: {row.get('notes')}")
+        # ── รูปสลิป + เปลี่ยนสถานะ (2 คอลัมน์เล็ก)
+        col_slip, col_act = st.columns([1, 2])
+        with col_slip:
             slip_url = row.get("slip_url", "")
             if slip_url and slip_url.startswith("http"):
-                st.markdown("**รูปสลิป:**")
-                st.image(slip_url, width=220)
-
-            st.divider()
+                st.image(slip_url, width=150)
+        with col_act:
             new_status = st.selectbox(
                 "เปลี่ยนสถานะ",
                 ALL_STATUS,
@@ -293,8 +281,7 @@ for _, row in filtered.iterrows():
                 key=f"status_{row.get('order_id')}",
             )
             new_note = st.text_input("หมายเหตุ", key=f"note_{row.get('order_id')}", placeholder="เช่น โอนไม่ครบ")
-
-            if st.button("💾 บันทึกสถานะสลิป", key=f"save_{row.get('order_id')}"):
+            if st.button("💾 บันทึก", key=f"save_{row.get('order_id')}"):
                 try:
                     update_slip_status(int(row["row_num"]), new_status, "", new_note)
                     st.success("บันทึกแล้ว")
@@ -303,43 +290,4 @@ for _, row in filtered.iterrows():
                 except Exception as e:
                     st.error(f"บันทึกไม่ได้: {e}")
 
-            st.divider()
-            st.markdown("**📦 สถานะจัดส่ง**")
-            staff_at = row.get("staff_confirmed_at", "")
-            cust_at  = row.get("customer_confirmed_at", "")
-            oid      = row.get("order_id", "")
-            uid      = row.get("line_user_id", "")
-
-            if staff_at and cust_at:
-                st.success(f"✅ เสร็จสิ้น — ทั้ง 2 ฝ่ายยืนยันแล้ว")
-                st.caption(f"สาขา: {staff_at} | ลูกค้า: {cust_at}")
-            elif row.get("slip_status") != "ยืนยัน":
-                st.caption("ต้องยืนยันสลิปก่อน")
-            elif ff_status == "รอเตรียม":
-                if is_del:
-                    if st.button("🚚 จัดส่งแล้ว", key=f"ship_{oid}"):
-                        update_fulfillment(int(row["row_num"]), "จัดส่งแล้ว")
-                        send_line_notify(oid, uid, "shipped")
-                        st.cache_data.clear(); st.rerun()
-                else:
-                    if st.button("📤 จัดส่งไปสาขา", key=f"tobrch_{oid}"):
-                        update_fulfillment(int(row["row_num"]), "กำลังจัดส่งไปสาขา")
-                        send_line_notify(oid, uid, "shipped")
-                        st.cache_data.clear(); st.rerun()
-            elif ff_status == "กำลังจัดส่งไปสาขา":
-                st.info("สินค้ากำลังไปสาขา")
-                if st.button("📍 ถึงสาขาแล้ว / พร้อมรับ", key=f"ready_{oid}"):
-                    update_fulfillment(int(row["row_num"]), "พร้อมรับ")
-                    send_line_notify(oid, uid, "ready")
-                    st.cache_data.clear(); st.rerun()
-            elif ff_status == "พร้อมรับ":
-                st.warning("รอลูกค้ามารับ — แจ้ง Line แล้ว")
-                if st.button("🤝 ส่งมอบสินค้า", key=f"hand_{oid}"):
-                    staff_confirm_handover(int(row["row_num"]))
-                    send_line_notify(oid, uid, "handover")
-                    st.cache_data.clear(); st.rerun()
-            elif ff_status in ("สาขายืนยัน", "จัดส่งแล้ว"):
-                st.warning("รอลูกค้ากดยืนยันรับ")
-                st.caption(f"สาขายืนยัน: {staff_at}")
-            else:
-                st.markdown(f"สถานะ: {ff_status}")
+            st.caption(f"📦 จัดส่ง: {ff_icon} {ff_status}")
