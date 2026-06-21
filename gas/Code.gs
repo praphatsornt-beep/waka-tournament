@@ -33,6 +33,10 @@ function doGet(e) {
       return handleApi(e.parameter);
     }
 
+    var cache = CacheService.getScriptCache();
+    var cached = cache.get("catalog_config");
+    if (cached) return _cors(ContentService.createTextOutput(cached));
+
     var ss    = SpreadsheetApp.openById(SHEET_ID);
     var catWs = ss.getSheetByName(TAB_CATALOG);
     var cfgWs = ss.getSheetByName(TAB_CONFIG);
@@ -59,7 +63,9 @@ function doGet(e) {
       if (cfgRows[j][0]) config[String(cfgRows[j][0])] = String(cfgRows[j][1] || "");
     }
 
-    return _cors(ContentService.createTextOutput(JSON.stringify({ catalog: catalog, config: config })));
+    var jsonOut = JSON.stringify({ catalog: catalog, config: config });
+    cache.put("catalog_config", jsonOut, 300);
+    return _cors(ContentService.createTextOutput(jsonOut));
   } catch (err) {
     return _cors(ContentService.createTextOutput(JSON.stringify({ error: err.message })));
   }
@@ -167,8 +173,10 @@ function doPost(e) {
       }
       return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true })));
     }
-    const orderId = _genOrderId();
-    const ss      = SpreadsheetApp.openById(SHEET_ID);
+    var lock = LockService.getScriptLock();
+    lock.waitLock(15000);
+    var orderId = _genOrderId();
+    var ss      = SpreadsheetApp.openById(SHEET_ID);
 
     var slipStatus = "ไม่มีสลิป";
     var slipNote   = "ลูกค้าไม่ได้แนบสลิป";
@@ -263,8 +271,10 @@ function doPost(e) {
 
     if (data.lineUserId) notifyCustomer(data.lineUserId, { orderId: orderId, items: data.items, displayName: data.displayName, branch: data.branch, address: data.address, total: data.total, slipStatus: slipStatus });
 
-    return _cors(ContentService.createTextOutput(JSON.stringify({ success: true, orderId, slipStatus })));
+    lock.releaseLock();
+    return _cors(ContentService.createTextOutput(JSON.stringify({ success: true, orderId: orderId, slipStatus: slipStatus })));
   } catch (err) {
+    try { lock.releaseLock(); } catch(_) {}
     return _cors(ContentService.createTextOutput(JSON.stringify({ success: false, error: err.message })));
   }
 }
@@ -302,8 +312,8 @@ function writeOrder(ss, d) {
     ]);
   }
   ws.appendRow([
-    d.orderId, d.timestamp, d.lineUserId, d.displayName,
-    d.itemsJson, d.total, d.branch, d.realName, d.phone, d.address,
+    d.orderId, d.timestamp, d.lineUserId, _sanitize(d.displayName),
+    d.itemsJson, d.total, d.branch, _sanitize(d.realName), _sanitize(d.phone), _sanitize(d.address),
     d.slipStatus, d.slipUrl, d.slipAmount, d.slipTxnId, d.notes,
   ]);
 }
@@ -753,6 +763,12 @@ function verifySlipWithClaude(base64) {
   } catch (err) {
     return { error: err.message };
   }
+}
+
+function _sanitize(val) {
+  var s = String(val || "");
+  if (s.length > 0 && "=+-@\t\r".indexOf(s[0]) >= 0) s = "'" + s;
+  return s;
 }
 
 function _driveUrl(url) {

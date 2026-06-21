@@ -94,6 +94,12 @@ Staff กดลิงค์ใน Line (ไม่ต้องเปิด Stream
 
 ---
 
+## Performance ที่แก้แล้ว (รอ deploy GAS)
+- [x] LIFF SDK defer — ไม่ block first render
+- [x] GAS catalog cache 5 นาที — LIFF โหลดเร็วขึ้น
+- [x] LockService ป้องกัน race condition (order ID ซ้ำ + stock)
+- [x] Formula injection protection — sanitize user input
+
 ## Bug ที่แก้แล้ว (รอ deploy)
 
 - [x] writeOrder ไม่สร้างคอลัมน์ fulfillment ใน header → เพิ่มแล้ว
@@ -128,6 +134,25 @@ Staff กดลิงค์ใน Line (ไม่ต้องเปิด Stream
 7. สไตล์: โทนเทาเข้ม + เบจ ตาม branding WAKA SPACE
 - Claude จะสร้าง Artifact ให้ดู preview ได้ทันที
 - [ ] **Bank API** — เช็คยอดเข้าบัญชีจริง 100% ต้องจดทะเบียนกับธนาคาร
+
+### Security (ควรทำก่อนใช้งานจริง)
+- [ ] **Server-side auth doPost** — validate LIFF access token ก่อนรับออเดอร์ ป้องกัน fake orders
+- [ ] **Staff API auth** — ย้าย PIN verification ไป server-side (ตอนนี้ PIN อยู่ใน client source code)
+- [ ] **Staff API ใช้ POST แทน GET** — ป้องกัน prefetch/cache trigger status change
+
+### Performance (ควรทำถ้ามีออเดอร์เยอะ)
+- [ ] **Order ID ใช้ Script Properties** — ไม่ต้องอ่าน Sheet ทั้งหมดเพื่อหาเลขล่าสุด
+- [ ] **Stock check ก่อนสั่ง** — แสดงสต็อกคงเหลือใน LIFF ป้องกันสั่งของหมด
+- [ ] **Batch cell updates** — deductStock เขียน Sheet ทีเดียวแทนทีละ cell
+- [ ] **LINE push เป็น background** — ส่งหลัง response ให้ลูกค้าเร็วขึ้น
+
+### UX ที่ควรเพิ่ม
+- [ ] **ประวัติออเดอร์ลูกค้า** — ลูกค้าดูออเดอร์เก่าได้
+- [ ] **Loading indicator ตอนอัปสลิป** — แสดง progress ตอน resize รูป
+- [ ] **Staff auto-refresh** — polling ทุก 30 วิ ดูออเดอร์ใหม่
+- [ ] **Staff ดูออเดอร์ทั้งหมดที่รอ** — ไม่ต้องค้นหา
+- [ ] **Export CSV** — admin export ออเดอร์สำหรับบัญชี
+- [ ] **ยกเลิกออเดอร์** — คืนสต็อก + แจ้งลูกค้า
 
 ### สิทธิ์และการจัดส่งสินค้าไปสาขา (ยังไม่ได้ทำ)
 
