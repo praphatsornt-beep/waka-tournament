@@ -11,6 +11,8 @@ const TAB_ORDERS  = "orders";
 const TAB_CATALOG = "_catalog";
 const TAB_CONFIG  = "_config";
 const TAB_STOCK   = "stock";
+const TAB_STOCK_BRANCH = "stock_branch";
+const TAB_SHIPMENTS    = "shipments";
 
 const BRANCHES = ["ต้นสัก", "เมืองทอง", "ศรีนครินทร์"];
 
@@ -72,81 +74,8 @@ function doGet(e) {
 }
 
 function handleCustomerConfirm(orderId, e) {
-  if (!orderId) {
-    return HtmlService.createHtmlOutput("<h2>ไม่พบเลขออเดอร์</h2>");
-  }
-  var ss = SpreadsheetApp.openById(SHEET_ID);
-  var ws = ss.getSheetByName(TAB_ORDERS);
-  var rows = ws.getDataRange().getValues();
-  var hdr = rows[0];
-  var col = function(name) { return hdr.indexOf(name); };
-
-  for (var i = 1; i < rows.length; i++) {
-    if (String(rows[i][col("order_id")]) !== orderId) continue;
-
-    var r = rows[i];
-    var ff       = r[col("fulfillment")] || "รอเตรียม";
-    var staffAt  = r[col("staff_confirmed_at")] || "";
-    var custAt   = r[col("customer_confirmed_at")] || "";
-    var slipSt   = r[col("slip_status")] || "";
-    var branch   = r[col("branch")] || "";
-    var ts       = r[col("timestamp")] || "";
-    var isDelivery = branch === "จัดส่ง";
-
-    var canConfirm = !custAt && staffAt;
-    var doConfirm = canConfirm && (e.parameter.do === "yes");
-    if (doConfirm) {
-      var now = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd HH:mm");
-      if (col("customer_confirmed_at") >= 0) ws.getRange(i + 1, col("customer_confirmed_at") + 1).setValue(now);
-      if (col("fulfillment") >= 0) ws.getRange(i + 1, col("fulfillment") + 1).setValue("รับแล้ว");
-      custAt = now;
-      ff = "รับแล้ว";
-    }
-
-    var steps = [];
-    steps.push({label: "สั่งซื้อสำเร็จ", done: true, time: ts ? ts.substring(0,16).replace("T"," ") : ""});
-    steps.push({label: "ยืนยันชำระเงิน", done: slipSt === "ยืนยัน", time: slipSt === "ยืนยัน" ? "ผ่าน" : ""});
-
-    if (isDelivery) {
-      steps.push({label: "จัดส่งแล้ว", done: ff === "จัดส่งแล้ว" || ff === "รับแล้ว", time: ""});
-    } else {
-      steps.push({label: "กำลังจัดส่งไปสาขา", done: ["กำลังจัดส่งไปสาขา","พร้อมรับ","สาขายืนยัน","รับแล้ว"].indexOf(ff) >= 0, time: ""});
-      steps.push({label: "พร้อมรับที่สาขา" + branch, done: ["พร้อมรับ","สาขายืนยัน","รับแล้ว"].indexOf(ff) >= 0, time: ""});
-      steps.push({label: "สาขาส่งมอบ", done: !!staffAt, time: staffAt});
-    }
-    steps.push({label: "ลูกค้ายืนยันรับ", done: !!custAt, time: custAt});
-
-    var html = '<div style="max-width:400px;margin:0 auto;padding:20px;font-family:sans-serif">';
-    html += '<h2 style="color:#06c755;text-align:center">📦 สถานะออเดอร์</h2>';
-    html += '<p style="text-align:center;color:#888">#' + orderId + '</p>';
-    html += '<div style="padding:10px 0">';
-    for (var s = 0; s < steps.length; s++) {
-      var icon = steps[s].done ? "✅" : "⏳";
-      var color = steps[s].done ? "#06c755" : "#ccc";
-      html += '<div style="display:flex;gap:10px;margin:8px 0;align-items:center">';
-      html += '<span style="font-size:20px">' + icon + '</span>';
-      html += '<div style="flex:1"><div style="font-weight:bold;color:' + (steps[s].done ? '#333' : '#aaa') + '">' + steps[s].label + '</div>';
-      if (steps[s].time) html += '<div style="font-size:12px;color:#999">' + steps[s].time + '</div>';
-      html += '</div></div>';
-      if (s < steps.length - 1) html += '<div style="margin-left:10px;border-left:2px solid ' + color + ';height:16px"></div>';
-    }
-    html += '</div>';
-
-    if (doConfirm) {
-      html += '<div style="text-align:center;margin-top:20px;padding:16px;background:#f0fbf4;border-radius:10px">';
-      html += '<h3 style="color:#06c755">✅ ยืนยันรับของสำเร็จ!</h3>';
-      html += '<p style="color:#888">บันทึกเมื่อ: ' + now + '</p></div>';
-    } else if (canConfirm) {
-      html += '<div style="text-align:center;margin-top:20px">';
-      html += '<p style="font-family:sans-serif;font-size:14px;color:#555">ได้รับสินค้าเรียบร้อยแล้วใช่ไหมครับ?</p>';
-      html += '<a href="?action=confirm&order=' + orderId + '&do=yes" style="display:inline-block;background:#06c755;color:#fff;padding:14px 32px;border-radius:24px;text-decoration:none;font-weight:bold;font-size:16px;margin-top:10px">✅ ยืนยันรับของแล้ว</a></div>';
-    }
-
-    html += '<p style="text-align:center;color:#aaa;margin-top:24px;font-size:12px">ขอบคุณที่ใช้บริการ 🎴</p></div>';
-    return HtmlService.createHtmlOutput(html);
-  }
-
-  return HtmlService.createHtmlOutput("<h2>ไม่พบออเดอร์ #" + orderId + "</h2>");
+  var url = "https://waka-liff.vercel.app/confirm.html?order=" + encodeURIComponent(orderId || "");
+  return HtmlService.createHtmlOutput('<script>window.top.location.href="' + url + '";</script>');
 }
 
 // POST: รับ order จาก LIFF หรือ internal actions
@@ -156,6 +85,18 @@ function doPost(e) {
 
     if (data._action === "sendConfirmLink") {
       return handleSendConfirmLink(data);
+    }
+
+    if (data._action === "createShipment") {
+      return handleCreateShipment(data);
+    }
+
+    if (data._action === "receiveShipment") {
+      return handleReceiveShipment(data);
+    }
+
+    if (data._action === "handoverOrder") {
+      return handleHandoverOrder(data);
     }
 
     if (Array.isArray(data.events)) {
@@ -185,7 +126,6 @@ function doPost(e) {
     var slipTxnId  = "";
 
     if (data.slipBase64) {
-      slipUrl = saveSlipToDrive(data.slipBase64, orderId);
       var verify = verifySlipWithSlipOK(data.slipBase64, data.total);
       var slipokError = verify.error || "";
       if (verify.error) verify = verifySlipWithClaude(data.slipBase64);
@@ -262,16 +202,33 @@ function doPost(e) {
       deductStock(ss, data.items);
     }
 
-    var cfgWs   = ss.getSheetByName(TAB_CONFIG);
-    var groupId = _getConfigValue(cfgWs, "group_staff");
-    var problemSlip = ["สงสัยปลอม","สลิปซ้ำ","บัญชีไม่ตรง","ยอดไม่ตรง"].indexOf(slipStatus) >= 0;
-    if (groupId && problemSlip) {
-      _linePush(groupId, "⚠️ ออเดอร์มีปัญหา #" + orderId + "\nสถานะ: " + slipStatus + "\n" + (slipNote || "") + "\n\nตรวจสอบ:\nhttps://waka-liff.vercel.app/staff.html?order=" + orderId);
+    // อัปโหลดสลิปหลัง write order — ไม่ block response
+    if (data.slipBase64 && !slipUrl) {
+      try {
+        slipUrl = saveSlipToDrive(data.slipBase64, orderId);
+        if (slipUrl) {
+          var owsUpd = ss.getSheetByName(TAB_ORDERS);
+          var lastRow = owsUpd.getLastRow();
+          var hdrUpd = owsUpd.getRange(1, 1, 1, owsUpd.getLastColumn()).getValues()[0];
+          var slipUrlCol = hdrUpd.indexOf("slip_url");
+          if (slipUrlCol >= 0) owsUpd.getRange(lastRow, slipUrlCol + 1).setValue(slipUrl);
+        }
+      } catch(_) {}
     }
 
-    if (data.lineUserId) notifyCustomer(data.lineUserId, { orderId: orderId, items: data.items, displayName: data.displayName, branch: data.branch, address: data.address, total: data.total, slipStatus: slipStatus });
-
     lock.releaseLock();
+
+    // LINE push หลัง release lock — ไม่ block order ถัดไป
+    try {
+      var cfgWs   = ss.getSheetByName(TAB_CONFIG);
+      var groupId = _getConfigValue(cfgWs, "group_staff");
+      var problemSlip = ["สงสัยปลอม","สลิปซ้ำ","บัญชีไม่ตรง","ยอดไม่ตรง"].indexOf(slipStatus) >= 0;
+      if (groupId && problemSlip) {
+        _linePush(groupId, "⚠️ ออเดอร์มีปัญหา #" + orderId + "\nสถานะ: " + slipStatus + "\n" + (slipNote || "") + "\n\nตรวจสอบ:\nhttps://waka-liff.vercel.app/staff.html?order=" + orderId);
+      }
+      if (data.lineUserId) notifyCustomer(data.lineUserId, { orderId: orderId, items: data.items, displayName: data.displayName, branch: data.branch, address: data.address, total: data.total, slipStatus: slipStatus });
+    } catch(_) {}
+
     return _cors(ContentService.createTextOutput(JSON.stringify({ success: true, orderId: orderId, slipStatus: slipStatus })));
   } catch (err) {
     try { lock.releaseLock(); } catch(_) {}
@@ -283,21 +240,23 @@ function deductStock(ss, items) {
   var ws = ss.getSheetByName(TAB_STOCK);
   if (!ws) return;
 
-  var rows = ws.getDataRange().getValues();
+  var range = ws.getDataRange();
+  var rows = range.getValues();
+  var changed = false;
   for (var idx = 0; idx < items.length; idx++) {
     var item = items[idx];
     for (var r = 1; r < rows.length; r++) {
       if (String(rows[r][0]).trim() !== String(item.name).trim()) continue;
       if (item.type === "box") {
-        var curBox = Number(rows[r][2]) || 0;
-        ws.getRange(r + 1, 3).setValue(Math.max(0, curBox - (item.qty || 1)));
+        rows[r][2] = Math.max(0, (Number(rows[r][2]) || 0) - (item.qty || 1));
       } else {
-        var curPack = Number(rows[r][3]) || 0;
-        ws.getRange(r + 1, 4).setValue(Math.max(0, curPack - (item.qty || 1)));
+        rows[r][3] = Math.max(0, (Number(rows[r][3]) || 0) - (item.qty || 1));
       }
+      changed = true;
       break;
     }
   }
+  if (changed) range.setValues(rows);
 }
 
 function writeOrder(ss, d) {
@@ -388,20 +347,10 @@ function _genOrderId() {
   var yy = String(now.getFullYear()).slice(-2);
   var prefix = yy + pad(now.getMonth()+1) + pad(now.getDate());
 
-  var ss = SpreadsheetApp.openById(SHEET_ID);
-  var ws = ss.getSheetByName(TAB_ORDERS);
-  var count = 1;
-  if (ws) {
-    var rows = ws.getDataRange().getValues();
-    for (var i = rows.length - 1; i >= 1; i--) {
-      if (String(rows[i][0]).indexOf(prefix) === 0) {
-        var last = parseInt(String(rows[i][0]).slice(6), 10) || 0;
-        count = last + 1;
-        break;
-      }
-    }
-  }
-  return prefix + String(count).padStart(3, "0");
+  var propKey = "order_seq_" + prefix;
+  var seq = parseInt(PROPS.getProperty(propKey) || "0", 10) + 1;
+  PROPS.setProperty(propKey, String(seq));
+  return prefix + String(seq).padStart(3, "0");
 }
 
 function saveSlipToDrive(base64, orderId) {
@@ -439,18 +388,13 @@ function handleStaffPage(orderId, action) {
       if (col("fulfillment") >= 0) ws.getRange(i+1, col("fulfillment")+1).setValue("กำลังจัดส่งไปสาขา");
       if (col("fulfilled_at") >= 0) ws.getRange(i+1, col("fulfilled_at")+1).setValue(now);
       ff = "กำลังจัดส่งไปสาขา";
-      var uid = r[col("line_user_id")];
-      if (uid) {
-        var trackUrl = gasUrl + "?action=confirm&order=" + orderId;
-        _linePush(uid, "สินค้ากำลังจัดส่งไปสาขา" + branch + "\n\nออเดอร์: #" + orderId + "\n\nดูสถานะ:\n" + trackUrl);
-      }
     } else if (action === "ready") {
       if (col("fulfillment") >= 0) ws.getRange(i+1, col("fulfillment")+1).setValue("พร้อมรับ");
       if (col("fulfilled_at") >= 0) ws.getRange(i+1, col("fulfilled_at")+1).setValue(now);
       ff = "พร้อมรับ";
       var uid2 = r[col("line_user_id")];
       if (uid2) {
-        var trackUrl2 = gasUrl + "?action=confirm&order=" + orderId;
+        var trackUrl2 = "https://waka-liff.vercel.app/confirm.html?order=" + orderId;
         _linePush(uid2, "สินค้าพร้อมรับที่สาขา" + branch + " แล้ว!\n\nออเดอร์: #" + orderId + "\n\nดูสถานะ:\n" + trackUrl2);
       }
     } else if (action === "handover") {
@@ -460,7 +404,7 @@ function handleStaffPage(orderId, action) {
       ff = ffValue;
       var uid3 = r[col("line_user_id")];
       if (uid3) {
-        var trackUrl3 = gasUrl + "?action=confirm&order=" + orderId;
+        var trackUrl3 = "https://waka-liff.vercel.app/confirm.html?order=" + orderId;
         _linePush(uid3, "สาขาส่งมอบสินค้าแล้ว กรุณากดยืนยันรับของ\n\nออเดอร์: #" + orderId + "\n\nกดยืนยัน:\n" + trackUrl3);
       }
     }
@@ -555,12 +499,11 @@ function handleApi(params) {
       var branch = rows[j][col("branch")] || "";
       var isDelivery = branch === "จัดส่ง";
       var uid = rows[j][col("line_user_id")] || "";
-      var trackUrl = gasUrl + "?action=confirm&order=" + orderId;
+      var trackUrl = "https://waka-liff.vercel.app/confirm.html?order=" + orderId;
 
       if (newStatus === "shipping") {
         if (col("fulfillment") >= 0) ws.getRange(j+1, col("fulfillment")+1).setValue("กำลังจัดส่งไปสาขา");
         if (col("fulfilled_at") >= 0) ws.getRange(j+1, col("fulfilled_at")+1).setValue(now);
-        if (uid) _linePush(uid, "สินค้ากำลังจัดส่งไปสาขา" + branch + "\n\nออเดอร์: #" + orderId + "\n\nดูสถานะ:\n" + trackUrl);
       } else if (newStatus === "ready") {
         if (col("fulfillment") >= 0) ws.getRange(j+1, col("fulfillment")+1).setValue("พร้อมรับ");
         if (col("fulfilled_at") >= 0) ws.getRange(j+1, col("fulfilled_at")+1).setValue(now);
@@ -574,6 +517,150 @@ function handleApi(params) {
       return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true, status: newStatus, time: now })));
     }
     return _cors(ContentService.createTextOutput(JSON.stringify({ error: "order not found" })));
+  }
+
+  if (action === "order_status") {
+    var orderId = params.order || "";
+    if (!orderId) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "missing order" })));
+    var col = function(name) { return hdr.indexOf(name); };
+    for (var k = 1; k < rows.length; k++) {
+      if (String(rows[k][col("order_id")]) !== orderId) continue;
+      var r = rows[k];
+      return _cors(ContentService.createTextOutput(JSON.stringify({
+        order_id: orderId,
+        branch: r[col("branch")] || "",
+        slip_status: r[col("slip_status")] || "",
+        fulfillment: r[col("fulfillment")] || "",
+        staff_confirmed_at: r[col("staff_confirmed_at")] || "",
+        customer_confirmed_at: r[col("customer_confirmed_at")] || "",
+        timestamp: r[col("timestamp")] || "",
+        total: r[col("total")] || 0,
+      })));
+    }
+    return _cors(ContentService.createTextOutput(JSON.stringify({ error: "order not found" })));
+  }
+
+  if (action === "customer_confirm") {
+    var orderId = params.order || "";
+    if (!orderId) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "missing order" })));
+    var col = function(name) { return hdr.indexOf(name); };
+    for (var m = 1; m < rows.length; m++) {
+      if (String(rows[m][col("order_id")]) !== orderId) continue;
+      var staffAt = rows[m][col("staff_confirmed_at")] || "";
+      var custAt = rows[m][col("customer_confirmed_at")] || "";
+      if (custAt) return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true, already: true })));
+      if (!staffAt) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "staff ยังไม่ส่งมอบ" })));
+      var now = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd HH:mm");
+      if (col("customer_confirmed_at") >= 0) ws.getRange(m + 1, col("customer_confirmed_at") + 1).setValue(now);
+      if (col("fulfillment") >= 0) ws.getRange(m + 1, col("fulfillment") + 1).setValue("รับแล้ว");
+      return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true, time: now })));
+    }
+    return _cors(ContentService.createTextOutput(JSON.stringify({ error: "order not found" })));
+  }
+
+  // ── ออเดอร์ของสาขา ──
+  if (action === "branch_orders") {
+    var branchFilter = params.branch || "";
+    if (!branchFilter) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "missing branch" })));
+    var col = function(name) { return hdr.indexOf(name); };
+    var orders = [];
+    for (var i = 1; i < rows.length; i++) {
+      if (String(rows[i][col("branch")] || "") !== branchFilter) continue;
+      var slip = String(rows[i][col("slip_status")] || "");
+      if (slip !== "ยืนยัน") continue;
+      orders.push({
+        order_id: String(rows[i][col("order_id")] || ""),
+        real_name: String(rows[i][col("real_name")] || ""),
+        display_name: String(rows[i][col("display_name")] || ""),
+        phone: String(rows[i][col("phone")] || ""),
+        items_json: String(rows[i][col("items_json")] || "[]"),
+        total: String(rows[i][col("total")] || "0"),
+        fulfillment: String(rows[i][col("fulfillment")] || ""),
+        staff_confirmed_at: String(rows[i][col("staff_confirmed_at")] || ""),
+        customer_confirmed_at: String(rows[i][col("customer_confirmed_at")] || ""),
+        timestamp: String(rows[i][col("timestamp")] || ""),
+      });
+    }
+    orders.reverse();
+    return _cors(ContentService.createTextOutput(JSON.stringify({ orders: orders })));
+  }
+
+  // ── สรุปออเดอร์แต่ละสาขา (รวมเป็นรายสินค้า) ──
+  if (action === "branch_summary") {
+    var col = function(name) { return hdr.indexOf(name); };
+    var summary = {};
+    for (var i = 1; i < rows.length; i++) {
+      var branch = rows[i][col("branch")] || "";
+      var slip = rows[i][col("slip_status")] || "";
+      var ff = rows[i][col("fulfillment")] || "";
+      if (slip !== "ยืนยัน") continue;
+      if (["กำลังจัดส่งไปสาขา","พร้อมรับ","สาขายืนยัน","รับแล้ว","จัดส่งแล้ว"].indexOf(ff) >= 0) continue;
+      var items = [];
+      try { items = JSON.parse(rows[i][col("items_json")] || "[]"); } catch(e) {}
+      if (!summary[branch]) summary[branch] = {};
+      for (var x = 0; x < items.length; x++) {
+        var key = items[x].name;
+        if (!summary[branch][key]) summary[branch][key] = { name: key, qty_box: 0, qty_pack: 0, order_count: 0 };
+        if (items[x].type === "box") summary[branch][key].qty_box += (items[x].qty || 1);
+        else summary[branch][key].qty_pack += (items[x].qty || 1);
+        summary[branch][key].order_count++;
+      }
+    }
+    var result = {};
+    for (var b in summary) {
+      result[b] = [];
+      for (var k in summary[b]) result[b].push(summary[b][k]);
+    }
+    return _cors(ContentService.createTextOutput(JSON.stringify({ branches: result })));
+  }
+
+  // ── สต็อกกลาง ──
+  if (action === "central_stock") {
+    var stockWs = ss.getSheetByName(TAB_STOCK);
+    if (!stockWs) return _cors(ContentService.createTextOutput(JSON.stringify({ stock: [] })));
+    var sRows = stockWs.getDataRange().getValues();
+    var stock = [];
+    for (var i = 1; i < sRows.length; i++) {
+      if (!sRows[i][0]) continue;
+      stock.push({ name: String(sRows[i][0]), category: String(sRows[i][1] || ""), qty_box: Number(sRows[i][2]) || 0, qty_pack: Number(sRows[i][3]) || 0 });
+    }
+    return _cors(ContentService.createTextOutput(JSON.stringify({ stock: stock })));
+  }
+
+  // ── สต็อกสาขา ──
+  if (action === "branch_stock") {
+    var branchFilter = params.branch || "";
+    var bsWs = ss.getSheetByName(TAB_STOCK_BRANCH);
+    if (!bsWs) return _cors(ContentService.createTextOutput(JSON.stringify({ stock: [] })));
+    var bsRows = bsWs.getDataRange().getValues();
+    var bStock = [];
+    for (var i = 1; i < bsRows.length; i++) {
+      if (!bsRows[i][0]) continue;
+      if (branchFilter && String(bsRows[i][2]) !== branchFilter) continue;
+      bStock.push({ name: String(bsRows[i][0]), category: String(bsRows[i][1] || ""), branch: String(bsRows[i][2] || ""), qty_box: Number(bsRows[i][3]) || 0, qty_pack: Number(bsRows[i][4]) || 0 });
+    }
+    return _cors(ContentService.createTextOutput(JSON.stringify({ stock: bStock })));
+  }
+
+  // ── รายการ shipments ──
+  if (action === "shipments") {
+    var shWs = ss.getSheetByName(TAB_SHIPMENTS);
+    if (!shWs) return _cors(ContentService.createTextOutput(JSON.stringify({ shipments: [] })));
+    var shRows = shWs.getDataRange().getValues();
+    var shList = [];
+    for (var i = 1; i < shRows.length; i++) {
+      shList.push({
+        shipment_id: String(shRows[i][0] || ""),
+        timestamp: String(shRows[i][1] || ""),
+        to_branch: String(shRows[i][2] || ""),
+        status: String(shRows[i][3] || ""),
+        items_json: String(shRows[i][4] || "[]"),
+        received_at: String(shRows[i][5] || ""),
+        notes: String(shRows[i][6] || ""),
+      });
+    }
+    shList.reverse();
+    return _cors(ContentService.createTextOutput(JSON.stringify({ shipments: shList })));
   }
 
   return _cors(ContentService.createTextOutput(JSON.stringify({ error: "unknown action" })));
@@ -596,17 +683,24 @@ function handleSendConfirmLink(data) {
 }
 
 function isDuplicateSlip(ss, ref) {
+  if (!ref) return false;
+  var cache = CacheService.getScriptCache();
+  var cacheKey = "slip_ref_" + String(ref).trim();
+  if (cache.get(cacheKey)) return true;
+
   var ws = ss.getSheetByName(TAB_ORDERS);
   if (!ws) return false;
-  var rows = ws.getDataRange().getValues();
-  var hdr  = rows[0];
-  var refCol = -1;
-  for (var c = 0; c < hdr.length; c++) {
-    if (hdr[c] === "slip_txn_id") { refCol = c; break; }
-  }
+  var lastRow = ws.getLastRow();
+  if (lastRow < 2) return false;
+  var hdr = ws.getRange(1, 1, 1, ws.getLastColumn()).getValues()[0];
+  var refCol = hdr.indexOf("slip_txn_id");
   if (refCol < 0) return false;
-  for (var i = 1; i < rows.length; i++) {
-    if (String(rows[i][refCol]).trim() === String(ref).trim()) return true;
+  var refs = ws.getRange(2, refCol + 1, lastRow - 1, 1).getValues();
+  for (var i = 0; i < refs.length; i++) {
+    if (String(refs[i][0]).trim() === String(ref).trim()) {
+      cache.put(cacheKey, "1", 3600);
+      return true;
+    }
   }
   return false;
 }
@@ -762,6 +856,201 @@ function verifySlipWithClaude(base64) {
     return { error: "ไม่พบ JSON: " + text.substring(0, 200) };
   } catch (err) {
     return { error: err.message };
+  }
+}
+
+// ── Shipment: สร้างล็อตส่งสาขา ──────────────────────────────────────────────
+// data: { to_branch, items: [{name, qty_box, qty_pack, qty_box_extra, qty_pack_extra}] }
+function handleCreateShipment(data) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var now = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd HH:mm");
+    var shipId = "SH" + Utilities.formatDate(new Date(), "Asia/Bangkok", "yyMMddHHmm");
+
+    var shWs = ss.getSheetByName(TAB_SHIPMENTS);
+    if (!shWs) {
+      shWs = ss.insertSheet(TAB_SHIPMENTS);
+      shWs.appendRow(["shipment_id", "timestamp", "to_branch", "status", "items_json", "received_at", "notes"]);
+    }
+
+    var items = data.items || [];
+    // ตัดสต็อกกลาง
+    var stockWs = ss.getSheetByName(TAB_STOCK);
+    if (stockWs) {
+      var sRows = stockWs.getDataRange().getValues();
+      for (var idx = 0; idx < items.length; idx++) {
+        var it = items[idx];
+        var totalBox = (it.qty_box || 0) + (it.qty_box_extra || 0);
+        var totalPack = (it.qty_pack || 0) + (it.qty_pack_extra || 0);
+        for (var r = 1; r < sRows.length; r++) {
+          if (String(sRows[r][0]).trim() !== String(it.name).trim()) continue;
+          if (totalBox > 0) {
+            var curBox = Number(sRows[r][2]) || 0;
+            stockWs.getRange(r + 1, 3).setValue(Math.max(0, curBox - totalBox));
+          }
+          if (totalPack > 0) {
+            var curPack = Number(sRows[r][3]) || 0;
+            stockWs.getRange(r + 1, 4).setValue(Math.max(0, curPack - totalPack));
+          }
+          break;
+        }
+      }
+    }
+
+    shWs.appendRow([shipId, now, data.to_branch || "", "จัดส่ง", JSON.stringify(items), "", ""]);
+    lock.releaseLock();
+    return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true, shipment_id: shipId })));
+  } catch (err) {
+    try { lock.releaseLock(); } catch(_) {}
+    return _cors(ContentService.createTextOutput(JSON.stringify({ error: err.message })));
+  }
+}
+
+// ── Shipment: สาขารับของ + เพิ่มสต็อกสาขา + แจ้งลูกค้า ───────────────────
+// data: { shipment_id }
+function handleReceiveShipment(data) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var shWs = ss.getSheetByName(TAB_SHIPMENTS);
+    if (!shWs) { lock.releaseLock(); return _cors(ContentService.createTextOutput(JSON.stringify({ error: "no shipments tab" }))); }
+    var shRows = shWs.getDataRange().getValues();
+    var shHdr = shRows[0];
+    var shipRow = -1, branch = "", items = [];
+    for (var i = 1; i < shRows.length; i++) {
+      if (String(shRows[i][0]) === data.shipment_id) {
+        shipRow = i;
+        branch = String(shRows[i][2]);
+        try { items = JSON.parse(shRows[i][4] || "[]"); } catch(e) {}
+        break;
+      }
+    }
+    if (shipRow < 0) { lock.releaseLock(); return _cors(ContentService.createTextOutput(JSON.stringify({ error: "shipment not found" }))); }
+    if (String(shRows[shipRow][3]) === "รับแล้ว") { lock.releaseLock(); return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true, already: true }))); }
+
+    var now = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd HH:mm");
+    shWs.getRange(shipRow + 1, 4).setValue("รับแล้ว");
+    shWs.getRange(shipRow + 1, 6).setValue(now);
+
+    // เพิ่มสต็อกสาขา (ทั้งออเดอร์+เผื่อ)
+    var bsWs = ss.getSheetByName(TAB_STOCK_BRANCH);
+    if (!bsWs) {
+      bsWs = ss.insertSheet(TAB_STOCK_BRANCH);
+      bsWs.appendRow(["name", "category", "branch", "qty_box", "qty_pack"]);
+    }
+    var bsRows = bsWs.getDataRange().getValues();
+    for (var idx = 0; idx < items.length; idx++) {
+      var it = items[idx];
+      var addBox = (it.qty_box || 0) + (it.qty_box_extra || 0);
+      var addPack = (it.qty_pack || 0) + (it.qty_pack_extra || 0);
+      var found = false;
+      for (var r = 1; r < bsRows.length; r++) {
+        if (String(bsRows[r][0]).trim() === String(it.name).trim() && String(bsRows[r][2]).trim() === branch) {
+          if (addBox > 0) bsWs.getRange(r + 1, 4).setValue((Number(bsRows[r][3]) || 0) + addBox);
+          if (addPack > 0) bsWs.getRange(r + 1, 5).setValue((Number(bsRows[r][4]) || 0) + addPack);
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        bsWs.appendRow([it.name, it.category || "", branch, addBox, addPack]);
+        bsRows = bsWs.getDataRange().getValues();
+      }
+    }
+
+    // แจ้ง LINE ลูกค้าทุกคนที่มีออเดอร์ยืนยัน + สาขานี้ + ยังไม่ส่ง
+    var ws = ss.getSheetByName(TAB_ORDERS);
+    if (ws) {
+      var oRows = ws.getDataRange().getValues();
+      var oHdr = oRows[0];
+      var oCol = function(name) { return oHdr.indexOf(name); };
+      for (var j = 1; j < oRows.length; j++) {
+        var oBranch = oRows[j][oCol("branch")] || "";
+        var oSlip = oRows[j][oCol("slip_status")] || "";
+        var oFf = oRows[j][oCol("fulfillment")] || "";
+        if (oBranch !== branch || oSlip !== "ยืนยัน") continue;
+        if (["พร้อมรับ","สาขายืนยัน","รับแล้ว"].indexOf(oFf) >= 0) continue;
+        // อัปเดต fulfillment เป็น "พร้อมรับ"
+        if (oCol("fulfillment") >= 0) ws.getRange(j + 1, oCol("fulfillment") + 1).setValue("พร้อมรับ");
+        if (oCol("fulfilled_at") >= 0) ws.getRange(j + 1, oCol("fulfilled_at") + 1).setValue(now);
+        var uid = oRows[j][oCol("line_user_id")] || "";
+        var oid = String(oRows[j][oCol("order_id")] || "");
+        if (uid) {
+          var trackUrl = "https://waka-liff.vercel.app/confirm.html?order=" + oid;
+          _linePush(uid, "สินค้าพร้อมรับที่สาขา" + branch + " แล้ว!\n\nออเดอร์: #" + oid + "\n\nดูสถานะ:\n" + trackUrl);
+        }
+      }
+    }
+
+    lock.releaseLock();
+    return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true, time: now })));
+  } catch (err) {
+    try { lock.releaseLock(); } catch(_) {}
+    return _cors(ContentService.createTextOutput(JSON.stringify({ error: err.message })));
+  }
+}
+
+// ── ส่งมอบลูกค้า: ตัดสต็อกสาขา ────────────────────────────────────────────
+// data: { order_id }
+function handleHandoverOrder(data) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var ws = ss.getSheetByName(TAB_ORDERS);
+    var oRows = ws.getDataRange().getValues();
+    var oHdr = oRows[0];
+    var oCol = function(name) { return oHdr.indexOf(name); };
+    var now = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd HH:mm");
+
+    for (var i = 1; i < oRows.length; i++) {
+      if (String(oRows[i][oCol("order_id")]) !== data.order_id) continue;
+      var branch = oRows[i][oCol("branch")] || "";
+      var items = [];
+      try { items = JSON.parse(oRows[i][oCol("items_json")] || "[]"); } catch(e) {}
+
+      // ตัดสต็อกสาขา
+      var bsWs = ss.getSheetByName(TAB_STOCK_BRANCH);
+      if (bsWs) {
+        var bsRows = bsWs.getDataRange().getValues();
+        for (var idx = 0; idx < items.length; idx++) {
+          for (var r = 1; r < bsRows.length; r++) {
+            if (String(bsRows[r][0]).trim() !== String(items[idx].name).trim()) continue;
+            if (String(bsRows[r][2]).trim() !== branch) continue;
+            if (items[idx].type === "box") {
+              var curBox = Number(bsRows[r][3]) || 0;
+              bsWs.getRange(r + 1, 4).setValue(Math.max(0, curBox - (items[idx].qty || 1)));
+            } else {
+              var curPack = Number(bsRows[r][4]) || 0;
+              bsWs.getRange(r + 1, 5).setValue(Math.max(0, curPack - (items[idx].qty || 1)));
+            }
+            break;
+          }
+        }
+      }
+
+      // อัปเดต fulfillment
+      if (oCol("fulfillment") >= 0) ws.getRange(i + 1, oCol("fulfillment") + 1).setValue("สาขายืนยัน");
+      if (oCol("staff_confirmed_at") >= 0) ws.getRange(i + 1, oCol("staff_confirmed_at") + 1).setValue(now);
+
+      // แจ้งลูกค้ากดยืนยันรับ
+      var uid = oRows[i][oCol("line_user_id")] || "";
+      if (uid) {
+        var trackUrl = "https://waka-liff.vercel.app/confirm.html?order=" + data.order_id;
+        _linePush(uid, "สาขาส่งมอบสินค้าแล้ว กรุณากดยืนยันรับของ\n\nออเดอร์: #" + data.order_id + "\n\nกดยืนยัน:\n" + trackUrl);
+      }
+
+      lock.releaseLock();
+      return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true, time: now })));
+    }
+    lock.releaseLock();
+    return _cors(ContentService.createTextOutput(JSON.stringify({ error: "order not found" })));
+  } catch (err) {
+    try { lock.releaseLock(); } catch(_) {}
+    return _cors(ContentService.createTextOutput(JSON.stringify({ error: err.message })));
   }
 }
 
