@@ -663,6 +663,82 @@ function handleApi(params) {
     return _cors(ContentService.createTextOutput(JSON.stringify({ shipments: shList })));
   }
 
+  // ── รายงานยอดขาย ──
+  if (action === "report") {
+    var col = function(name) { return hdr.indexOf(name); };
+
+    // อ่าน cost จาก _catalog
+    var catWs = ss.getSheetByName(TAB_CATALOG);
+    var costMap = {};
+    if (catWs) {
+      var catRows = catWs.getDataRange().getValues();
+      for (var ci = 1; ci < catRows.length; ci++) {
+        if (!catRows[ci][0]) continue;
+        costMap[String(catRows[ci][0])] = {
+          cost_box: Number(catRows[ci][6]) || 0,
+          cost_pack: Number(catRows[ci][7]) || 0,
+          price_box: Number(catRows[ci][2]) || 0,
+          price_pack: Number(catRows[ci][3]) || 0,
+        };
+      }
+    }
+
+    var byBranch = {};
+    var byProduct = {};
+    var byDate = {};
+    var totalRevenue = 0, totalCost = 0;
+
+    for (var i = 1; i < rows.length; i++) {
+      var slip = rows[i][col("slip_status")] || "";
+      if (slip !== "ยืนยัน") continue;
+
+      var branch = rows[i][col("branch")] || "ไม่ระบุ";
+      var ts = String(rows[i][col("timestamp")] || "");
+      var dateKey = ts.substring(0, 10);
+      var items = [];
+      try { items = JSON.parse(rows[i][col("items_json")] || "[]"); } catch(e) {}
+
+      var orderRev = 0, orderCost = 0;
+      for (var x = 0; x < items.length; x++) {
+        var it = items[x];
+        var qty = it.qty || 1;
+        var c = costMap[it.name] || {};
+        var rev = (it.price || 0) * qty;
+        var cost = (it.type === "box" ? (c.cost_box || 0) : (c.cost_pack || 0)) * qty;
+        orderRev += rev;
+        orderCost += cost;
+
+        var pKey = it.name + "|" + it.type;
+        if (!byProduct[pKey]) byProduct[pKey] = { name: it.name, type: it.type, qty: 0, revenue: 0, cost: 0 };
+        byProduct[pKey].qty += qty;
+        byProduct[pKey].revenue += rev;
+        byProduct[pKey].cost += cost;
+      }
+
+      if (!byBranch[branch]) byBranch[branch] = { revenue: 0, cost: 0, orders: 0 };
+      byBranch[branch].revenue += orderRev;
+      byBranch[branch].cost += orderCost;
+      byBranch[branch].orders++;
+
+      if (dateKey) {
+        if (!byDate[dateKey]) byDate[dateKey] = { revenue: 0, cost: 0, orders: 0 };
+        byDate[dateKey].revenue += orderRev;
+        byDate[dateKey].cost += orderCost;
+        byDate[dateKey].orders++;
+      }
+
+      totalRevenue += orderRev;
+      totalCost += orderCost;
+    }
+
+    return _cors(ContentService.createTextOutput(JSON.stringify({
+      total: { revenue: totalRevenue, cost: totalCost, profit: totalRevenue - totalCost },
+      by_branch: byBranch,
+      by_product: Object.values(byProduct),
+      by_date: byDate,
+    })));
+  }
+
   return _cors(ContentService.createTextOutput(JSON.stringify({ error: "unknown action" })));
 }
 
