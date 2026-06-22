@@ -50,12 +50,14 @@ function doGet(e) {
       var price_pack = catRows[i][3], active = catRows[i][4], image_url = catRows[i][5];
       if (!name) continue;
       if (active === false || active === "FALSE" || active === 0) continue;
+      var slug = catRows[i][8] || "";
       catalog.push({
         name:       String(name),
         category:   String(category || ""),
         price_box:  Number(price_box)  || 0,
         price_pack: Number(price_pack) || 0,
         imageUrl:   _driveUrl(String(image_url || "")),
+        slug:       String(slug),
       });
     }
 
