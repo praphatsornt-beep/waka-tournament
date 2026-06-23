@@ -51,6 +51,8 @@ function doGet(e) {
       if (!name) continue;
       if (active === false || active === "FALSE" || active === 0) continue;
       var slug = catRows[i][8] || "";
+      var limit_box  = catRows[i][9];
+      var limit_pack = catRows[i][10];
       catalog.push({
         name:       String(name),
         category:   String(category || ""),
@@ -58,6 +60,8 @@ function doGet(e) {
         price_pack: Number(price_pack) || 0,
         imageUrl:   _driveUrl(String(image_url || "")),
         slug:       String(slug),
+        limit_box:  (limit_box === "" || limit_box === undefined || limit_box === null) ? -1 : Number(limit_box),
+        limit_pack: (limit_pack === "" || limit_pack === undefined || limit_pack === null) ? -1 : Number(limit_pack),
       });
     }
 
@@ -182,6 +186,15 @@ function doPost(e) {
       }
     }
 
+    // ── ตรวจ limit ใน _catalog ก่อนรับออเดอร์ ──
+    if (data.items && data.items.length > 0) {
+      var limitCheck = checkCatalogLimits(ss, data.items);
+      if (limitCheck.error) {
+        try { lock.releaseLock(); } catch(_) {}
+        return _cors(ContentService.createTextOutput(JSON.stringify({ success: false, error: limitCheck.error })));
+      }
+    }
+
     writeOrder(ss, {
       orderId,
       timestamp:   new Date().toISOString(),
@@ -200,7 +213,8 @@ function doPost(e) {
       notes:       slipNote,
     });
 
-    if (data.items) {
+    if (data.items && data.items.length > 0) {
+      deductCatalogLimits(ss, data.items);
       deductStock(ss, data.items);
     }
 
@@ -235,6 +249,54 @@ function doPost(e) {
   } catch (err) {
     try { lock.releaseLock(); } catch(_) {}
     return _cors(ContentService.createTextOutput(JSON.stringify({ success: false, error: err.message })));
+  }
+}
+
+// ── Catalog limit: ตรวจจำนวนที่ปล่อยขาย (คอลัมน์ J=limit_box, K=limit_pack) ──
+function checkCatalogLimits(ss, items) {
+  var ws = ss.getSheetByName(TAB_CATALOG);
+  if (!ws) return { ok: true };
+  var rows = ws.getDataRange().getValues();
+  for (var idx = 0; idx < items.length; idx++) {
+    var item = items[idx];
+    for (var r = 1; r < rows.length; r++) {
+      if (String(rows[r][0]).trim() !== String(item.name).trim()) continue;
+      var colIdx = item.type === "box" ? 9 : 10;
+      var limit = rows[r][colIdx];
+      if (limit === "" || limit === undefined || limit === null) break; // ไม่จำกัด
+      limit = Number(limit);
+      if (item.qty > limit) {
+        var unitLabel = item.type === "box" ? "กล่อง" : "ซอง";
+        if (limit <= 0) return { error: item.name + " (" + unitLabel + ") สินค้าหมดแล้ว" };
+        return { error: item.name + " (" + unitLabel + ") เหลือเพียง " + limit + " " + unitLabel };
+      }
+      break;
+    }
+  }
+  return { ok: true };
+}
+
+function deductCatalogLimits(ss, items) {
+  var ws = ss.getSheetByName(TAB_CATALOG);
+  if (!ws) return;
+  var range = ws.getDataRange();
+  var rows = range.getValues();
+  var changed = false;
+  for (var idx = 0; idx < items.length; idx++) {
+    var item = items[idx];
+    for (var r = 1; r < rows.length; r++) {
+      if (String(rows[r][0]).trim() !== String(item.name).trim()) continue;
+      var colIdx = item.type === "box" ? 9 : 10;
+      var limit = rows[r][colIdx];
+      if (limit === "" || limit === undefined || limit === null) break; // ไม่จำกัด
+      rows[r][colIdx] = Math.max(0, Number(limit) - (item.qty || 1));
+      changed = true;
+      break;
+    }
+  }
+  if (changed) {
+    range.setValues(rows);
+    CacheService.getScriptCache().remove("catalog_config");
   }
 }
 
