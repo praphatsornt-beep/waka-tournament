@@ -115,6 +115,10 @@ function doPost(e) {
       return handleAddProduct(data);
     }
 
+    if (data._action === "withdrawStock") {
+      return handleWithdrawStock(data);
+    }
+
     if (Array.isArray(data.events)) {
       for (var ev = 0; ev < data.events.length; ev++) {
         var evt = data.events[ev];
@@ -875,6 +879,53 @@ function handleApi(params) {
     return _cors(ContentService.createTextOutput(JSON.stringify({ products: products })));
   }
 
+  // ── Dashboard KPI ──
+  if (action === "dashboard") {
+    var col = function(name) { return hdr.indexOf(name); };
+    var today = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd");
+    var ordersToday = 0, revenueToday = 0, pendingCount = 0;
+    var recentOrders = [];
+    for (var i = rows.length - 1; i >= 1; i--) {
+      var ts = String(rows[i][col("timestamp")] || "");
+      var slip = String(rows[i][col("slip_status")] || "");
+      if (ts.substring(0, 10) === today) {
+        ordersToday++;
+        if (slip === "ยืนยัน") revenueToday += Number(rows[i][col("total")]) || 0;
+      }
+      if (["รอตรวจ","รอตรวจเพิ่ม","ยอดไม่ตรง","สลิปซ้ำ","บัญชีไม่ตรง","สงสัยปลอม"].indexOf(slip) >= 0) pendingCount++;
+      if (recentOrders.length < 10) {
+        recentOrders.push({
+          order_id: String(rows[i][col("order_id")] || ""),
+          real_name: String(rows[i][col("real_name")] || ""),
+          total: Number(rows[i][col("total")]) || 0,
+          slip_status: slip,
+          fulfillment: String(rows[i][col("fulfillment")] || ""),
+          branch: String(rows[i][col("branch")] || ""),
+          timestamp: ts,
+        });
+      }
+    }
+    return _cors(ContentService.createTextOutput(JSON.stringify({
+      orders_today: ordersToday, revenue_today: revenueToday,
+      pending_count: pendingCount, recent_orders: recentOrders,
+    })));
+  }
+
+  // ── รายการเบิกสินค้า ──
+  if (action === "withdrawals") {
+    var wWs = ss.getSheetByName("withdrawals");
+    if (!wWs) return _cors(ContentService.createTextOutput(JSON.stringify({ withdrawals: [] })));
+    var wRows = wWs.getDataRange().getValues();
+    var branchFilter = params.branch || "";
+    var wList = [];
+    for (var i = 1; i < wRows.length; i++) {
+      if (branchFilter && String(wRows[i][1]) !== branchFilter) continue;
+      wList.push({ timestamp: String(wRows[i][0] || ""), branch: String(wRows[i][1] || ""), name: String(wRows[i][2] || ""), type: String(wRows[i][3] || ""), qty: Number(wRows[i][4]) || 0, reason: String(wRows[i][5] || "") });
+    }
+    wList.reverse();
+    return _cors(ContentService.createTextOutput(JSON.stringify({ withdrawals: wList.slice(0, 50) })));
+  }
+
   return _cors(ContentService.createTextOutput(JSON.stringify({ error: "unknown action" })));
 }
 
@@ -1348,6 +1399,48 @@ function handleAddProduct(data) {
     stockWs.appendRow([data.name, data.category || "", Number(data.initial_box) || 0, Number(data.initial_pack) || 0]);
 
     CacheService.getScriptCache().remove("catalog_config");
+    lock.releaseLock();
+    return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true })));
+  } catch (err) {
+    try { lock.releaseLock(); } catch(_) {}
+    return _cors(ContentService.createTextOutput(JSON.stringify({ error: err.message })));
+  }
+}
+
+// ── เบิกสินค้าจากสาขา ──
+// data: { branch, name, type, qty, reason }
+function handleWithdrawStock(data) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var bsWs = ss.getSheetByName(TAB_STOCK_BRANCH);
+    if (!bsWs) { lock.releaseLock(); return _cors(ContentService.createTextOutput(JSON.stringify({ error: "no stock_branch tab" }))); }
+
+    var bsRows = bsWs.getDataRange().getValues();
+    var deducted = false;
+    for (var r = 1; r < bsRows.length; r++) {
+      if (String(bsRows[r][0]).trim() !== String(data.name).trim()) continue;
+      if (String(bsRows[r][2]).trim() !== String(data.branch).trim()) continue;
+      var colIdx = data.type === "box" ? 3 : 4;
+      var current = Number(bsRows[r][colIdx]) || 0;
+      var qty = Number(data.qty) || 0;
+      if (qty > current) { lock.releaseLock(); return _cors(ContentService.createTextOutput(JSON.stringify({ error: "สต็อกไม่พอ (เหลือ " + current + ")" }))); }
+      bsWs.getRange(r + 1, colIdx + 1).setValue(current - qty);
+      deducted = true;
+      break;
+    }
+    if (!deducted) { lock.releaseLock(); return _cors(ContentService.createTextOutput(JSON.stringify({ error: "ไม่พบสินค้านี้ในสต็อกสาขา" }))); }
+
+    // บันทึก log
+    var wWs = ss.getSheetByName("withdrawals");
+    if (!wWs) {
+      wWs = ss.insertSheet("withdrawals");
+      wWs.appendRow(["timestamp", "branch", "name", "type", "qty", "reason"]);
+    }
+    var now = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd HH:mm");
+    wWs.appendRow([now, data.branch, data.name, data.type || "", Number(data.qty) || 0, data.reason || ""]);
+
     lock.releaseLock();
     return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true })));
   } catch (err) {
