@@ -1166,6 +1166,24 @@ function handleCreateShipment(data) {
 
     shWs.appendRow([shipId, now, data.to_branch || "", "จัดส่ง", JSON.stringify(items), "", ""]);
     lock.releaseLock();
+
+    // LINE แจ้งกลุ่ม staff
+    try {
+      var cfgWs = ss.getSheetByName(TAB_CONFIG);
+      var groupId = _getConfigValue(cfgWs, "group_staff");
+      if (groupId) {
+        var itemLines = items.map(function(it) {
+          var parts = [];
+          var tb = (it.qty_box || 0) + (it.qty_box_extra || 0);
+          var tp = (it.qty_pack || 0) + (it.qty_pack_extra || 0);
+          if (tb > 0) parts.push("Box " + tb + (it.qty_box_extra ? " (เผื่อ " + it.qty_box_extra + ")" : ""));
+          if (tp > 0) parts.push("Pack " + tp + (it.qty_pack_extra ? " (เผื่อ " + it.qty_pack_extra + ")" : ""));
+          return "  - " + it.name + ": " + parts.join(", ");
+        }).join("\n");
+        _linePush(groupId, "📦 สร้างล็อตส่งสาขา " + (data.to_branch || "") + "\n\n" + shipId + " — " + now + "\n\n" + itemLines);
+      }
+    } catch(_) {}
+
     return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true, shipment_id: shipId })));
   } catch (err) {
     try { lock.releaseLock(); } catch(_) {}
