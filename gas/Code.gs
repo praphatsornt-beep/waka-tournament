@@ -237,10 +237,12 @@ function doPost(e) {
     // LINE push หลัง release lock — ไม่ block order ถัดไป
     try {
       var cfgWs   = ss.getSheetByName(TAB_CONFIG);
-      var groupId = _getConfigValue(cfgWs, "group_staff");
       var problemSlip = ["สงสัยปลอม","สลิปซ้ำ","บัญชีไม่ตรง","ยอดไม่ตรง"].indexOf(slipStatus) >= 0;
-      if (groupId && problemSlip) {
-        _linePush(groupId, "⚠️ ออเดอร์มีปัญหา #" + orderId + "\nสถานะ: " + slipStatus + "\n" + (slipNote || "") + "\n\nตรวจสอบ:\nhttps://waka-liff.vercel.app/staff.html?order=" + orderId);
+      if (problemSlip) {
+        var financeId = _getConfigValue(cfgWs, "finance_line_id");
+        if (financeId) {
+          _linePush(financeId, "⚠️ ออเดอร์มีปัญหา #" + orderId + "\nสถานะ: " + slipStatus + "\n" + (slipNote || "") + "\n\nตรวจสอบ:\nhttps://waka-tournament-e6wsqmhuhhexratyiub65f.streamlit.app");
+        }
       }
       if (data.lineUserId) notifyCustomer(data.lineUserId, { orderId: orderId, items: data.items, displayName: data.displayName, branch: data.branch, address: data.address, total: data.total, slipStatus: slipStatus });
     } catch(_) {}
@@ -1205,5 +1207,9 @@ function _driveUrl(url) {
   var m = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
   if (m) return "https://drive.google.com/thumbnail?id=" + m[1] + "&sz=w400";
   return url;
+}
+
+function clearCache() {
+  CacheService.getScriptCache().remove("catalog_config");
 }
 
