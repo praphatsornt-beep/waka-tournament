@@ -119,6 +119,10 @@ function doPost(e) {
       return handleWithdrawStock(data);
     }
 
+    if (data._action === "confirmSlip") {
+      return handleConfirmSlip(data);
+    }
+
     if (Array.isArray(data.events)) {
       for (var ev = 0; ev < data.events.length; ev++) {
         var evt = data.events[ev];
@@ -1183,7 +1187,7 @@ function handleCreateShipment(data) {
           if (tp > 0) parts.push("Pack " + tp + (it.qty_pack_extra ? " (เผื่อ " + it.qty_pack_extra + ")" : ""));
           return "  - " + it.name + ": " + parts.join(", ");
         }).join("\n");
-        _linePush(groupId, "📦 สร้างล็อตส่งสาขา " + (data.to_branch || "") + "\n\n" + shipId + " — " + now + "\n\n" + itemLines);
+        _linePush(groupId, "📦 สร้างล็อตส่งสาขา " + (data.to_branch || "") + "\n\n" + shipId + " — " + now + "\n\n" + itemLines + "\n\nพอได้รับของแล้ว กดยืนยันรับของ:\nhttps://waka-liff.vercel.app/app.html");
       }
     } catch(_) {}
 
@@ -1351,6 +1355,47 @@ function _driveUrl(url) {
   var m = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
   if (m) return "https://drive.google.com/thumbnail?id=" + m[1] + "&sz=w400";
   return url;
+}
+
+function handleConfirmSlip(data) {
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var ws = ss.getSheetByName(TAB_ORDERS);
+    var rows = ws.getDataRange().getValues();
+    var hdr = rows[0];
+    var col = function(name) { return hdr.indexOf(name); };
+
+    for (var i = 1; i < rows.length; i++) {
+      if (String(rows[i][col("order_id")]) !== data.order_id) continue;
+      var currentSlip = rows[i][col("slip_status")] || "";
+      if (currentSlip === "ยืนยัน") return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true, already: true })));
+
+      ws.getRange(i + 1, col("slip_status") + 1).setValue("ยืนยัน");
+      var now = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd HH:mm");
+      ws.getRange(i + 1, col("notes") + 1).setValue("Admin confirm " + now);
+
+      var uid = rows[i][col("line_user_id")] || "";
+      var orderId = String(rows[i][col("order_id")] || "");
+      var branch = rows[i][col("branch")] || "";
+      var total = rows[i][col("total")] || 0;
+      var items = [];
+      try { items = JSON.parse(rows[i][col("items_json")] || "[]"); } catch(_) {}
+
+      if (uid) {
+        var itemsText = items.map(function(it) {
+          var unit = it.type === "box" ? "กล่อง" : "ซอง";
+          return "  - " + it.name + " (" + unit + ") x" + it.qty;
+        }).join("\n");
+        var isDelivery = branch === "จัดส่ง";
+        _linePush(uid, "ยืนยันการชำระเงินแล้ว ✅\n\nออเดอร์: #" + orderId + "\n\n" + itemsText + "\n\nยอดรวม: " + total + " บาท\n" + (isDelivery ? "จัดส่งพัสดุ" : "รับที่สาขา: " + branch) + "\n\nทีมงานจะแจ้งเมื่อสินค้าพร้อมรับครับ");
+      }
+
+      return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true })));
+    }
+    return _cors(ContentService.createTextOutput(JSON.stringify({ error: "order not found" })));
+  } catch (err) {
+    return _cors(ContentService.createTextOutput(JSON.stringify({ error: err.message })));
+  }
 }
 
 // ── เพิ่มสต็อกสินค้าเดิม ──
