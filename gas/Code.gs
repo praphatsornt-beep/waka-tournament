@@ -1383,10 +1383,12 @@ function handleAddProduct(data) {
     }
 
     // เพิ่มใน _catalog: A=name, B=category, C=price_box, D=price_pack, E=active, F=image_url, G=cost_box, H=cost_pack, I=slug, J=limit_box, K=limit_pack, L=barcode
+    var limBox = (data.limit_box === "" || data.limit_box === undefined || data.limit_box === null) ? "" : Number(data.limit_box);
+    var limPack = (data.limit_pack === "" || data.limit_pack === undefined || data.limit_pack === null) ? "" : Number(data.limit_pack);
     var newRow = [
       data.name, data.category || "", Number(data.price_box) || 0, Number(data.price_pack) || 0,
       "TRUE", "", Number(data.cost_box) || 0, Number(data.cost_pack) || 0,
-      "", "", "", data.barcode || ""
+      "", limBox, limPack, data.barcode || ""
     ];
     catWs.appendRow(newRow);
 
@@ -1399,48 +1401,6 @@ function handleAddProduct(data) {
     stockWs.appendRow([data.name, data.category || "", Number(data.initial_box) || 0, Number(data.initial_pack) || 0]);
 
     CacheService.getScriptCache().remove("catalog_config");
-    lock.releaseLock();
-    return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true })));
-  } catch (err) {
-    try { lock.releaseLock(); } catch(_) {}
-    return _cors(ContentService.createTextOutput(JSON.stringify({ error: err.message })));
-  }
-}
-
-// ── เบิกสินค้าจากสาขา ──
-// data: { branch, name, type, qty, reason }
-function handleWithdrawStock(data) {
-  var lock = LockService.getScriptLock();
-  lock.waitLock(10000);
-  try {
-    var ss = SpreadsheetApp.openById(SHEET_ID);
-    var bsWs = ss.getSheetByName(TAB_STOCK_BRANCH);
-    if (!bsWs) { lock.releaseLock(); return _cors(ContentService.createTextOutput(JSON.stringify({ error: "no stock_branch tab" }))); }
-
-    var bsRows = bsWs.getDataRange().getValues();
-    var deducted = false;
-    for (var r = 1; r < bsRows.length; r++) {
-      if (String(bsRows[r][0]).trim() !== String(data.name).trim()) continue;
-      if (String(bsRows[r][2]).trim() !== String(data.branch).trim()) continue;
-      var colIdx = data.type === "box" ? 3 : 4;
-      var current = Number(bsRows[r][colIdx]) || 0;
-      var qty = Number(data.qty) || 0;
-      if (qty > current) { lock.releaseLock(); return _cors(ContentService.createTextOutput(JSON.stringify({ error: "สต็อกไม่พอ (เหลือ " + current + ")" }))); }
-      bsWs.getRange(r + 1, colIdx + 1).setValue(current - qty);
-      deducted = true;
-      break;
-    }
-    if (!deducted) { lock.releaseLock(); return _cors(ContentService.createTextOutput(JSON.stringify({ error: "ไม่พบสินค้านี้ในสต็อกสาขา" }))); }
-
-    // บันทึก log
-    var wWs = ss.getSheetByName("withdrawals");
-    if (!wWs) {
-      wWs = ss.insertSheet("withdrawals");
-      wWs.appendRow(["timestamp", "branch", "name", "type", "qty", "reason"]);
-    }
-    var now = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd HH:mm");
-    wWs.appendRow([now, data.branch, data.name, data.type || "", Number(data.qty) || 0, data.reason || ""]);
-
     lock.releaseLock();
     return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true })));
   } catch (err) {
