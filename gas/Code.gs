@@ -873,6 +873,8 @@ function handleApi(params) {
         price_box: Number(catRows[i][2]) || 0, price_pack: Number(catRows[i][3]) || 0,
         cost_box: Number(catRows[i][6]) || 0, cost_pack: Number(catRows[i][7]) || 0,
         barcode: String(catRows[i][11] || ""),
+        limit_box: (catRows[i][9] === "" || catRows[i][9] === undefined || catRows[i][9] === null) ? -1 : Number(catRows[i][9]),
+        limit_pack: (catRows[i][10] === "" || catRows[i][10] === undefined || catRows[i][10] === null) ? -1 : Number(catRows[i][10]),
         stock_box: st.qty_box, stock_pack: st.qty_pack,
       });
     }
@@ -1355,6 +1357,23 @@ function handleAddStock(data) {
     if (!found) {
       ws.appendRow([data.name, data.category || "", Number(data.add_box) || 0, Number(data.add_pack) || 0]);
     }
+
+    // อัปเดต limit ใน _catalog ถ้าส่งมา
+    if (data.limit_box !== undefined && data.limit_box !== null || data.limit_pack !== undefined && data.limit_pack !== null) {
+      var catWs = ss.getSheetByName(TAB_CATALOG);
+      if (catWs) {
+        var catRows = catWs.getDataRange().getValues();
+        for (var c = 1; c < catRows.length; c++) {
+          if (String(catRows[c][0]).trim() === String(data.name).trim()) {
+            if (data.limit_box !== undefined && data.limit_box !== null) catWs.getRange(c + 1, 10).setValue(Number(data.limit_box));
+            if (data.limit_pack !== undefined && data.limit_pack !== null) catWs.getRange(c + 1, 11).setValue(Number(data.limit_pack));
+            CacheService.getScriptCache().remove("catalog_config");
+            break;
+          }
+        }
+      }
+    }
+
     lock.releaseLock();
     return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true })));
   } catch (err) {
