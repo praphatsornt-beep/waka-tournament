@@ -53,6 +53,7 @@ function doGet(e) {
       var slug = catRows[i][8] || "";
       var limit_box  = catRows[i][9];
       var limit_pack = catRows[i][10];
+      var barcode    = catRows[i][11] || "";
       catalog.push({
         name:       String(name),
         category:   String(category || ""),
@@ -62,6 +63,7 @@ function doGet(e) {
         slug:       String(slug),
         limit_box:  (limit_box === "" || limit_box === undefined || limit_box === null) ? -1 : Number(limit_box),
         limit_pack: (limit_pack === "" || limit_pack === undefined || limit_pack === null) ? -1 : Number(limit_pack),
+        barcode:    String(barcode),
       });
     }
 
@@ -103,6 +105,14 @@ function doPost(e) {
 
     if (data._action === "handoverOrder") {
       return handleHandoverOrder(data);
+    }
+
+    if (data._action === "addStock") {
+      return handleAddStock(data);
+    }
+
+    if (data._action === "addProduct") {
+      return handleAddProduct(data);
     }
 
     if (Array.isArray(data.events)) {
@@ -805,6 +815,66 @@ function handleApi(params) {
     })));
   }
 
+  // ── ค้นหาสินค้าจาก barcode ──
+  if (action === "lookup_barcode") {
+    var barcode = String(params.barcode || "").trim();
+    if (!barcode) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "missing barcode" })));
+    var catWs = ss.getSheetByName(TAB_CATALOG);
+    if (!catWs) return _cors(ContentService.createTextOutput(JSON.stringify({ found: false })));
+    var catRows = catWs.getDataRange().getValues();
+    for (var i = 1; i < catRows.length; i++) {
+      if (String(catRows[i][11] || "").trim() === barcode) {
+        var stockWs = ss.getSheetByName(TAB_STOCK);
+        var sBox = 0, sPack = 0;
+        if (stockWs) {
+          var sRows = stockWs.getDataRange().getValues();
+          for (var s = 1; s < sRows.length; s++) {
+            if (String(sRows[s][0]).trim() === String(catRows[i][0]).trim()) { sBox = Number(sRows[s][2]) || 0; sPack = Number(sRows[s][3]) || 0; break; }
+          }
+        }
+        return _cors(ContentService.createTextOutput(JSON.stringify({
+          found: true,
+          product: {
+            name: String(catRows[i][0]), category: String(catRows[i][1] || ""),
+            price_box: Number(catRows[i][2]) || 0, price_pack: Number(catRows[i][3]) || 0,
+            cost_box: Number(catRows[i][6]) || 0, cost_pack: Number(catRows[i][7]) || 0,
+            barcode: barcode, stock_box: sBox, stock_pack: sPack,
+          }
+        })));
+      }
+    }
+    return _cors(ContentService.createTextOutput(JSON.stringify({ found: false })));
+  }
+
+  // ── รายการสินค้าทั้งหมด (สำหรับหน้ารับสต็อก) ──
+  if (action === "product_list") {
+    var catWs = ss.getSheetByName(TAB_CATALOG);
+    if (!catWs) return _cors(ContentService.createTextOutput(JSON.stringify({ products: [] })));
+    var catRows = catWs.getDataRange().getValues();
+    var stockWs = ss.getSheetByName(TAB_STOCK);
+    var stockMap = {};
+    if (stockWs) {
+      var sRows = stockWs.getDataRange().getValues();
+      for (var s = 1; s < sRows.length; s++) {
+        if (sRows[s][0]) stockMap[String(sRows[s][0]).trim()] = { qty_box: Number(sRows[s][2]) || 0, qty_pack: Number(sRows[s][3]) || 0 };
+      }
+    }
+    var products = [];
+    for (var i = 1; i < catRows.length; i++) {
+      if (!catRows[i][0]) continue;
+      var n = String(catRows[i][0]).trim();
+      var st = stockMap[n] || { qty_box: 0, qty_pack: 0 };
+      products.push({
+        name: n, category: String(catRows[i][1] || ""),
+        price_box: Number(catRows[i][2]) || 0, price_pack: Number(catRows[i][3]) || 0,
+        cost_box: Number(catRows[i][6]) || 0, cost_pack: Number(catRows[i][7]) || 0,
+        barcode: String(catRows[i][11] || ""),
+        stock_box: st.qty_box, stock_pack: st.qty_pack,
+      });
+    }
+    return _cors(ContentService.createTextOutput(JSON.stringify({ products: products })));
+  }
+
   return _cors(ContentService.createTextOutput(JSON.stringify({ error: "unknown action" })));
 }
 
@@ -1207,6 +1277,83 @@ function _driveUrl(url) {
   var m = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
   if (m) return "https://drive.google.com/thumbnail?id=" + m[1] + "&sz=w400";
   return url;
+}
+
+// ── เพิ่มสต็อกสินค้าเดิม ──
+// data: { name, add_box, add_pack }
+function handleAddStock(data) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var ws = ss.getSheetByName(TAB_STOCK);
+    if (!ws) {
+      ws = ss.insertSheet(TAB_STOCK);
+      ws.appendRow(["name", "category", "qty_box", "qty_pack"]);
+    }
+    var rows = ws.getDataRange().getValues();
+    var found = false;
+    for (var r = 1; r < rows.length; r++) {
+      if (String(rows[r][0]).trim() === String(data.name).trim()) {
+        if (data.add_box) ws.getRange(r + 1, 3).setValue((Number(rows[r][2]) || 0) + Number(data.add_box));
+        if (data.add_pack) ws.getRange(r + 1, 4).setValue((Number(rows[r][3]) || 0) + Number(data.add_pack));
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      ws.appendRow([data.name, data.category || "", Number(data.add_box) || 0, Number(data.add_pack) || 0]);
+    }
+    lock.releaseLock();
+    return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true })));
+  } catch (err) {
+    try { lock.releaseLock(); } catch(_) {}
+    return _cors(ContentService.createTextOutput(JSON.stringify({ error: err.message })));
+  }
+}
+
+// ── เพิ่มสินค้าใหม่ใน _catalog + stock ──
+// data: { name, category, price_box, price_pack, cost_box, cost_pack, barcode, initial_box, initial_pack }
+function handleAddProduct(data) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var catWs = ss.getSheetByName(TAB_CATALOG);
+    if (!catWs) { lock.releaseLock(); return _cors(ContentService.createTextOutput(JSON.stringify({ error: "no _catalog tab" }))); }
+
+    // เช็คชื่อซ้ำ
+    var catRows = catWs.getDataRange().getValues();
+    for (var i = 1; i < catRows.length; i++) {
+      if (String(catRows[i][0]).trim() === String(data.name).trim()) {
+        lock.releaseLock();
+        return _cors(ContentService.createTextOutput(JSON.stringify({ error: "สินค้าชื่อนี้มีอยู่แล้ว" })));
+      }
+    }
+
+    // เพิ่มใน _catalog: A=name, B=category, C=price_box, D=price_pack, E=active, F=image_url, G=cost_box, H=cost_pack, I=slug, J=limit_box, K=limit_pack, L=barcode
+    var newRow = [
+      data.name, data.category || "", Number(data.price_box) || 0, Number(data.price_pack) || 0,
+      "TRUE", "", Number(data.cost_box) || 0, Number(data.cost_pack) || 0,
+      "", "", "", data.barcode || ""
+    ];
+    catWs.appendRow(newRow);
+
+    // เพิ่มใน stock
+    var stockWs = ss.getSheetByName(TAB_STOCK);
+    if (!stockWs) {
+      stockWs = ss.insertSheet(TAB_STOCK);
+      stockWs.appendRow(["name", "category", "qty_box", "qty_pack"]);
+    }
+    stockWs.appendRow([data.name, data.category || "", Number(data.initial_box) || 0, Number(data.initial_pack) || 0]);
+
+    CacheService.getScriptCache().remove("catalog_config");
+    lock.releaseLock();
+    return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true })));
+  } catch (err) {
+    try { lock.releaseLock(); } catch(_) {}
+    return _cors(ContentService.createTextOutput(JSON.stringify({ error: err.message })));
+  }
 }
 
 function clearCache() {
