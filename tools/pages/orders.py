@@ -24,7 +24,7 @@ SCOPES     = ["https://www.googleapis.com/auth/spreadsheets"]
 TOKEN_PATH = Path("token.json")
 SHEET_ID   = "1aUHbSt3qlQ4uMIzlCGbF-iFm0AqSeqx12nxk5ny1JoY"
 
-BRANCHES   = ["ต้นสัก", "เมืองทอง", "ศรีนครินทร์", "จัดส่ง"]
+BRANCHES   = ["ต้นสักคอร์เนอร์", "เมืองทองธานี", "ศรีนครินทร์", "จัดส่ง"]
 ALL_STATUS = ["รอตรวจ", "รอตรวจเพิ่ม", "ยืนยัน", "ยอดไม่ตรง", "สลิปซ้ำ", "บัญชีไม่ตรง", "สงสัยปลอม", "ยกเลิก", "ไม่มีสลิป"]
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -130,6 +130,17 @@ def send_line_notify(order_id: str, line_user_id: str, msg_type: str):
         "confirmUrl": confirm_url,
         "msgType": msg_type,
     }, timeout=15)
+
+
+def confirm_slip_via_gas(order_id: str):
+    import requests
+    try:
+        requests.post(GAS_URL, json={
+            "_action": "confirmSlip",
+            "order_id": order_id,
+        }, timeout=15)
+    except Exception:
+        pass
 
 
 def parse_items(items_json: str) -> list:
@@ -284,7 +295,11 @@ for _, row in filtered.iterrows():
             if st.button("💾 บันทึก", key=f"save_{row.get('order_id')}"):
                 try:
                     update_slip_status(int(row["row_num"]), new_status, "", new_note)
-                    st.success("บันทึกแล้ว")
+                    if new_status == "ยืนยัน" and cur_status != "ยืนยัน":
+                        confirm_slip_via_gas(row.get("order_id", ""))
+                        st.success("บันทึกแล้ว + แจ้ง LINE ลูกค้าแล้ว")
+                    else:
+                        st.success("บันทึกแล้ว")
                     st.cache_data.clear()
                     st.rerun()
                 except Exception as e:

@@ -14,7 +14,7 @@ const TAB_STOCK   = "stock";
 const TAB_STOCK_BRANCH = "stock_branch";
 const TAB_SHIPMENTS    = "shipments";
 
-const BRANCHES = ["ต้นสัก", "เมืองทอง", "ศรีนครินทร์"];
+const BRANCHES = ["ต้นสักคอร์เนอร์", "เมืองทองธานี", "ศรีนครินทร์"];
 
 function _cors(output) {
   return output.setMimeType(ContentService.MimeType.JSON);
@@ -1187,7 +1187,7 @@ function handleCreateShipment(data) {
           if (tp > 0) parts.push("Pack " + tp + (it.qty_pack_extra ? " (เผื่อ " + it.qty_pack_extra + ")" : ""));
           return "  - " + it.name + ": " + parts.join(", ");
         }).join("\n");
-        _linePush(groupId, "📦 สร้างล็อตส่งสาขา " + (data.to_branch || "") + "\n\n" + shipId + " — " + now + "\n\n" + itemLines + "\n\nพอได้รับของแล้ว กดยืนยันรับของ:\nhttps://waka-liff.vercel.app/app.html");
+        _linePush(groupId, "📦 สร้างล็อตส่งสาขา " + (data.to_branch || "") + "\n\n" + shipId + " — " + now + "\n\n" + itemLines);
       }
     } catch(_) {}
 
