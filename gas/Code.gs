@@ -1203,7 +1203,8 @@ function handleCreateShipment(data) {
           if (tp > 0) parts.push("Pack " + tp + (it.qty_pack_extra ? " (เผื่อ " + it.qty_pack_extra + ")" : ""));
           return "  - " + it.name + ": " + parts.join(", ");
         }).join("\n");
-        _linePush(groupId, "📦 สร้างล็อตส่งสาขา " + (data.to_branch || "") + "\n\n" + shipId + " — " + now + "\n\n" + itemLines);
+        var receiveUrl = "https://waka-liff.vercel.app/warehouse.html?tab=history";
+        _linePush(groupId, "📦 สร้างล็อตส่งสาขา " + (data.to_branch || "") + "\n\n" + shipId + " — " + now + "\n\n" + itemLines + "\n\nเมื่อสินค้าถึงสาขาแล้ว กดรับของที่:\n" + receiveUrl);
       }
     } catch(_) {}
 
