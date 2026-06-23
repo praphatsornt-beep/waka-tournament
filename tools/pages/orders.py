@@ -84,7 +84,7 @@ def update_slip_status(row_num: int, status: str, amount: str = "", note: str = 
     status_col = hdr.index("slip_status") + 1 if "slip_status" in hdr else None
     amount_col = hdr.index("slip_amount") + 1 if "slip_amount" in hdr else None
     notes_col  = hdr.index("notes")       + 1 if "notes"       in hdr else None
-    if status_col:
+    if status_col and status:
         ws.update_cell(row_num, status_col, status)
     if amount_col and amount:
         ws.update_cell(row_num, amount_col, amount)
@@ -294,11 +294,13 @@ for _, row in filtered.iterrows():
             new_note = st.text_input("หมายเหตุ", key=f"note_{row.get('order_id')}", placeholder="เช่น โอนไม่ครบ")
             if st.button("💾 บันทึก", key=f"save_{row.get('order_id')}"):
                 try:
-                    update_slip_status(int(row["row_num"]), new_status, "", new_note)
                     if new_status == "ยืนยัน" and cur_status != "ยืนยัน":
                         confirm_slip_via_gas(row.get("order_id", ""))
+                        if new_note:
+                            update_slip_status(int(row["row_num"]), "", "", new_note)
                         st.success("บันทึกแล้ว + แจ้ง LINE ลูกค้าแล้ว")
                     else:
+                        update_slip_status(int(row["row_num"]), new_status, "", new_note)
                         st.success("บันทึกแล้ว")
                     st.cache_data.clear()
                     st.rerun()
