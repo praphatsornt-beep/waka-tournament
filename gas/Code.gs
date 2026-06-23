@@ -899,6 +899,9 @@ function handleApi(params) {
         recentOrders.push({
           order_id: String(rows[i][col("order_id")] || ""),
           real_name: String(rows[i][col("real_name")] || ""),
+          display_name: String(rows[i][col("display_name")] || ""),
+          phone: String(rows[i][col("phone")] || ""),
+          items_json: String(rows[i][col("items_json")] || "[]"),
           total: Number(rows[i][col("total")]) || 0,
           slip_status: slip,
           fulfillment: String(rows[i][col("fulfillment")] || ""),
