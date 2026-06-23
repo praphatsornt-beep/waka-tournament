@@ -4,7 +4,7 @@
 import json
 import re
 from pathlib import Path
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import streamlit as st
 import pandas as pd
@@ -92,8 +92,12 @@ def update_slip_status(row_num: int, status: str, amount: str = "", note: str = 
         ws.update_cell(row_num, notes_col, note)
 
 
+TH_TZ = timezone(timedelta(hours=7))
+
+def _now_th():
+    return datetime.now(TH_TZ).strftime("%Y-%m-%d %H:%M")
+
 def update_fulfillment(row_num: int, status: str):
-    from datetime import datetime
     ws = get_gc().open_by_key(SHEET_ID).worksheet("orders")
     hdr = ws.row_values(1)
     ff_col = hdr.index("fulfillment") + 1 if "fulfillment" in hdr else None
@@ -101,16 +105,15 @@ def update_fulfillment(row_num: int, status: str):
     if ff_col:
         ws.update_cell(row_num, ff_col, status)
     if at_col:
-        ws.update_cell(row_num, at_col, datetime.now().strftime("%Y-%m-%d %H:%M"))
+        ws.update_cell(row_num, at_col, _now_th())
 
 
 def staff_confirm_handover(row_num: int):
-    from datetime import datetime
     ws = get_gc().open_by_key(SHEET_ID).worksheet("orders")
     hdr = ws.row_values(1)
     col = hdr.index("staff_confirmed_at") + 1 if "staff_confirmed_at" in hdr else None
     ff_col = hdr.index("fulfillment") + 1 if "fulfillment" in hdr else None
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    now = _now_th()
     if col:
         ws.update_cell(row_num, col, now)
     if ff_col:

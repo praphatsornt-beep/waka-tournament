@@ -231,7 +231,7 @@ function doPost(e) {
 
     writeOrder(ss, {
       orderId,
-      timestamp:   new Date().toISOString(),
+      timestamp:   Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd'T'HH:mm:ss'+07:00'"),
       lineUserId:  data.lineUserId  || "",
       displayName: data.displayName || "",
       itemsJson:   JSON.stringify(data.items || []),
