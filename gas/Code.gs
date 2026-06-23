@@ -135,6 +135,22 @@ function doPost(e) {
             _linePush(src.groupId, "ตั้งค่ากลุ่ม staff สำเร็จ!\nGroup ID: " + src.groupId);
           }
         }
+        if (src.userId && msgText.trim() === "!waka-finance") {
+          var cfgWs2 = SpreadsheetApp.openById(SHEET_ID).getSheetByName(TAB_CONFIG);
+          if (cfgWs2) {
+            var rows2 = cfgWs2.getDataRange().getValues();
+            var found2 = false;
+            for (var fi = 1; fi < rows2.length; fi++) {
+              if (String(rows2[fi][0]) === "finance_line_id") {
+                cfgWs2.getRange(fi + 1, 2).setValue(src.userId);
+                found2 = true;
+                break;
+              }
+            }
+            if (!found2) cfgWs2.appendRow(["finance_line_id", src.userId]);
+            _linePush(src.userId, "ตั้งค่าบัญชีสำเร็จ ✅\nระบบจะแจ้งเตือนเมื่อมีสลิปมีปัญหา\n\nUser ID: " + src.userId);
+          }
+        }
       }
       return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true })));
     }
