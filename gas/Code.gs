@@ -1280,6 +1280,8 @@ function handleApi(params) {
         var given = Number(bRows[bi][bCol("boxes_given")]) || 0;
         given++;
         bWs.getRange(bi + 1, bCol("boxes_given") + 1).setValue(given);
+        var boxAt = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd HH:mm:ss");
+        if (bCol("last_play_date") >= 0) bWs.getRange(bi + 1, bCol("last_play_date") + 1).setValue("box " + boxAt);
         var boxUid = String(bRows[bi][bCol("line_user_id")] || "");
         if (boxUid && boxUid !== "dev_user") {
           _linePush(boxUid, "🎁 รับ Box เรียบร้อย!\nชื่อแข่ง: " + boxPlayer + "\nBox ที่ได้: " + given);
@@ -1406,6 +1408,7 @@ function handleApi(params) {
           slip_url: String(luRows[li][luCol("slip_url")] || ""),
           payment_method: String(luRows[li][luCol("payment_method")] || ""),
           bank: String(luRows[li][luCol("bank")] || ""),
+          note: String(luRows[li][luCol("note")] || ""),
           event_date: String(luRows[li][luCol("event_date")] || ""),
           row_num: li + 1,
         });
@@ -1450,7 +1453,9 @@ function handleApi(params) {
         if (String(gcRows[gi][gcCol("cards_given")]).toLowerCase() === "true") {
           return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true, already: true })));
         }
+        var givenAt = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd HH:mm:ss");
         gcWs.getRange(gi + 1, gcCol("cards_given") + 1).setValue("TRUE");
+        if (gcCol("note") >= 0) gcWs.getRange(gi + 1, gcCol("note") + 1).setValue("แจก " + givenAt);
         var gcUid = String(gcRows[gi][gcCol("line_user_id")] || "");
         var gcName = String(gcRows[gi][gcCol("player_name")] || gcRows[gi][gcCol("real_name")] || "");
         var gcChoice = String(gcRows[gi][gcCol("choice")] || "");
