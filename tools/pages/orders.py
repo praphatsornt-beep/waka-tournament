@@ -197,22 +197,25 @@ def fulfill_icon(s: str) -> str:
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Orders", page_icon="🛒", layout="wide")
-st.title("🛒 ออเดอร์การ์ดเกม")
 
-# ── Sidebar filters ───────────────────────────────────────────────────────────
-with st.sidebar:
-    st.header("🔍 กรอง")
-    if st.button("🔄 โหลดใหม่"):
+# ── Top bar: title + search + reload ─────────────────────────────────────────
+t1, t2 = st.columns([3, 1])
+with t1:
+    search = st.text_input("🔍 ค้นหา", placeholder="ชื่อ / เบอร์ / เลขออเดอร์", label_visibility="collapsed")
+with t2:
+    if st.button("🔄 โหลดใหม่", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
 
+# ── Sidebar filters ───────────────────────────────────────────────────────────
+with st.sidebar:
+    st.header("กรอง")
     date_range = st.date_input(
         "ช่วงวันที่",
         value=(date.today() - timedelta(days=7), date.today()),
     )
     branch_filter = st.multiselect("สาขา / จัดส่ง", BRANCHES, default=BRANCHES)
     status_filter = st.multiselect("สถานะสลิป", ALL_STATUS, default=ALL_STATUS)
-    search = st.text_input("ค้นหาชื่อ / เบอร์ / เลขออเดอร์", "")
 
 # ── Load ──────────────────────────────────────────────────────────────────────
 df = load_orders()
@@ -240,19 +243,21 @@ if search:
 
 filtered = filtered.sort_values("timestamp_dt", ascending=False).reset_index(drop=True)
 
-# ── KPI ───────────────────────────────────────────────────────────────────────
+# ── KPI (compact) ────────────────────────────────────────────────────────────
 confirmed = filtered[filtered["slip_status"] == "ยืนยัน"]
-pending   = filtered[filtered["slip_status"] == "รอตรวจ"]
-problems  = filtered[filtered["slip_status"].isin(["ยอดไม่ตรง", "สลิปซ้ำ", "บัญชีไม่ตรง"])]
+pending   = filtered[filtered["slip_status"].isin(["รอตรวจ", "รอตรวจเพิ่ม"])]
+problems  = filtered[filtered["slip_status"].isin(["ยอดไม่ตรง", "สลิปซ้ำ", "บัญชีไม่ตรง", "สงสัยปลอม"])]
+no_slip   = filtered[filtered["slip_status"] == "ไม่มีสลิป"]
 
-c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("ทั้งหมด", len(filtered))
-c2.metric("ยืนยัน 🟢", len(confirmed))
-c3.metric("รอตรวจ 🟡", len(pending))
-c4.metric("ปัญหา 🔴", len(problems))
-c5.metric("ยอดรวม (ยืนยัน)", f"฿{confirmed['total'].sum():,.0f}")
-
-st.divider()
+kpi_text = (
+    f"📋 **{len(filtered)}** ทั้งหมด &nbsp;|&nbsp; "
+    f"🟢 **{len(confirmed)}** ยืนยัน &nbsp;|&nbsp; "
+    f"🟡 **{len(pending)}** รอตรวจ &nbsp;|&nbsp; "
+    f"🔴 **{len(problems)}** ปัญหา &nbsp;|&nbsp; "
+    f"⚪ **{len(no_slip)}** ไม่มีสลิป &nbsp;|&nbsp; "
+    f"💰 **฿{confirmed['total'].sum():,.0f}**"
+)
+st.markdown(kpi_text)
 
 # ── Order cards ───────────────────────────────────────────────────────────────
 if filtered.empty:
@@ -263,33 +268,28 @@ for _, row in filtered.iterrows():
     items   = parse_items(row.get("items_json", ""))
     is_del  = row.get("branch", "") == "จัดส่ง"
     s_icon  = status_color(row.get("slip_status", ""))
-    label   = f"{s_icon} #{row.get('order_id','')}  |  {row.get('real_name','?')}  |  {row.get('branch','')}  |  ฿{int(row.get('total',0)):,}  |  {row.get('date','')}"
-
+    cur_status = row.get("slip_status", "รอตรวจ")
     ff_status = row.get("fulfillment", "") or "รอเตรียม"
-    ff_time   = row.get("fulfilled_at", "")
     ff_icon   = fulfill_icon(ff_status)
+    total_str = f"฿{int(row.get('total',0)):,}"
+    branch_str = "🚚 จัดส่ง" if is_del else row.get("branch", "—")
 
-    with st.expander(label, expanded=needs_attention(row.get("slip_status", ""))):
-        # ── บรรทัดที่ 1: ลูกค้า + สาขา
-        cur_status = row.get("slip_status", "รอตรวจ")
-        info_parts = [
-            f"👤 **{row.get('real_name','—')}** ({row.get('display_name','—')})",
-            f"📱 {row.get('phone','—')}",
-            f"{'🚚 จัดส่ง' if is_del else '📦 ' + row.get('branch','—')}",
-            f"{s_icon} {cur_status}",
-        ]
-        st.markdown(" · ".join(info_parts))
+    label = f"{s_icon} **#{row.get('order_id','')}** · {row.get('real_name','?')} · {branch_str} · {total_str}"
+
+    with st.expander(label, expanded=needs_attention(cur_status)):
+        st.markdown(
+            f"👤 **{row.get('real_name','—')}** ({row.get('display_name','—')}) · "
+            f"📱 {row.get('phone','—')} · {branch_str} · "
+            f"{ff_icon} {ff_status}"
+        )
         if is_del and row.get("address"):
-            st.caption(f"ที่อยู่: {row.get('address')}")
+            st.caption(f"📍 {row.get('address')}")
 
-        # ── บรรทัดที่ 2: สินค้า (inline)
         if items:
-            items_str = " | ".join([f"{i.get('name','')} ({'กล่อง' if i.get('type')=='box' else 'ซอง'}) ×{i.get('qty',1)} = ฿{i.get('price',0)*i.get('qty',1):,}" for i in items])
-            st.markdown(f"🎴 {items_str} → **฿{int(row.get('total',0)):,}**")
+            for i in items:
+                unit = "กล่อง" if i.get("type") == "box" else "ซอง"
+                st.markdown(f"&nbsp;&nbsp;• {i.get('name','')} ({unit}) ×{i.get('qty',1)} = ฿{i.get('price',0)*i.get('qty',1):,}")
 
-        # ── บรรทัดที่ 3: สลิป + หมายเหตุ
-        if row.get("slip_amount", 0):
-            st.caption(f"ยอดในสลิป: ฿{int(row.get('slip_amount',0)):,}")
         if row.get("notes"):
             st.caption(f"📝 {row.get('notes')}")
 
