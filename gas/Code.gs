@@ -510,78 +510,100 @@ function handleTournamentRegister(data) {
   lock.waitLock(15000);
   try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
-    var regId = _genTournamentRegId();
+    var groupId = _genTournamentRegId();
     var now = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd'T'HH:mm:ss'+07:00'");
     var today = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd");
+    var payMethod = data.paymentMethod || "transfer";
 
     var slipUrl = "";
     if (data.slipBase64) {
-      slipUrl = saveSlipToDrive(data.slipBase64, regId);
+      slipUrl = saveSlipToDrive(data.slipBase64, groupId);
     }
+    var slipStatus = payMethod === "cash" ? "cash" : "pending";
 
     var regWs = _ensureTab(ss, TAB_TOURNAMENT_REG, [
-      "reg_id", "timestamp", "event_date", "line_user_id", "display_name",
-      "real_name", "phone", "slip_url", "slip_status", "choice", "cards_given", "note"
-    ]);
-    regWs.appendRow([
-      regId, now, today,
-      data.lineUserId || "", data.displayName || "", data.realName || "",
-      data.phone || "", slipUrl, "pending",
-      data.choice || "cards", "", ""
+      "reg_id", "timestamp", "event_date", "group_id", "line_user_id", "display_name",
+      "real_name", "player_name", "phone", "slip_url", "slip_status", "payment_method",
+      "choice", "cards_given", "note"
     ]);
 
     var statsWs = _ensureTab(ss, TAB_PLAYER_STATS, [
-      "line_user_id", "display_name", "real_name", "total_plays",
+      "player_name", "display_name", "real_name", "line_user_id", "total_plays",
       "accumulation_count", "cards_received", "boxes_earned", "boxes_given", "last_play_date"
     ]);
     var statsRows = statsWs.getDataRange().getValues();
     var sHdr = statsRows[0];
     var sCol = function(name) { return sHdr.indexOf(name); };
-    var foundRow = -1;
-    for (var i = 1; i < statsRows.length; i++) {
-      if (String(statsRows[i][sCol("line_user_id")]) === String(data.lineUserId)) {
-        foundRow = i + 1;
-        break;
-      }
+
+    var players = data.players || [];
+    if (players.length === 0) {
+      players = [{ realName: data.realName || "", playerName: data.playerName || data.realName || "", choice: data.choice || "cards" }];
     }
 
-    var accCount = 0;
-    var boxEarned = false;
-    var choice = data.choice || "cards";
+    var results = [];
+    for (var p = 0; p < players.length; p++) {
+      var pl = players[p];
+      var regId = p === 0 ? groupId : _genTournamentRegId();
+      var pName = String(pl.playerName || pl.realName || "").trim();
+      var rName = String(pl.realName || "").trim();
+      var choice = pl.choice || "cards";
 
-    if (foundRow > 0) {
-      var totalPlays = Number(statsRows[foundRow - 1][sCol("total_plays")]) || 0;
-      accCount = Number(statsRows[foundRow - 1][sCol("accumulation_count")]) || 0;
-      var cardsRcvd = Number(statsRows[foundRow - 1][sCol("cards_received")]) || 0;
-      var boxesEarned = Number(statsRows[foundRow - 1][sCol("boxes_earned")]) || 0;
+      regWs.appendRow([
+        regId, now, today, groupId,
+        data.lineUserId || "", data.displayName || "",
+        rName, pName, data.phone || "", slipUrl, slipStatus, payMethod,
+        choice, "", ""
+      ]);
 
-      totalPlays++;
-      if (choice === "accumulate") {
-        accCount++;
-        if (accCount >= 10) {
-          accCount = 0;
-          boxesEarned++;
-          boxEarned = true;
+      var foundRow = -1;
+      for (var i = 1; i < statsRows.length; i++) {
+        if (String(statsRows[i][sCol("player_name")]).trim() === pName) {
+          foundRow = i + 1;
+          break;
         }
-      } else {
-        cardsRcvd++;
       }
 
-      statsWs.getRange(foundRow, sCol("display_name") + 1).setValue(data.displayName || "");
-      statsWs.getRange(foundRow, sCol("real_name") + 1).setValue(data.realName || "");
-      statsWs.getRange(foundRow, sCol("total_plays") + 1).setValue(totalPlays);
-      statsWs.getRange(foundRow, sCol("accumulation_count") + 1).setValue(accCount);
-      statsWs.getRange(foundRow, sCol("cards_received") + 1).setValue(cardsRcvd);
-      statsWs.getRange(foundRow, sCol("boxes_earned") + 1).setValue(boxesEarned);
-      statsWs.getRange(foundRow, sCol("last_play_date") + 1).setValue(today);
-    } else {
-      var newAcc = choice === "accumulate" ? 1 : 0;
-      var newCards = choice === "cards" ? 1 : 0;
-      accCount = newAcc;
-      statsWs.appendRow([
-        data.lineUserId || "", data.displayName || "", data.realName || "",
-        1, newAcc, newCards, 0, 0, today
-      ]);
+      var accCount = 0;
+      var boxEarned = false;
+
+      if (foundRow > 0) {
+        var totalPlays = Number(statsRows[foundRow - 1][sCol("total_plays")]) || 0;
+        accCount = Number(statsRows[foundRow - 1][sCol("accumulation_count")]) || 0;
+        var cardsRcvd = Number(statsRows[foundRow - 1][sCol("cards_received")]) || 0;
+        var boxesEarned = Number(statsRows[foundRow - 1][sCol("boxes_earned")]) || 0;
+
+        totalPlays++;
+        if (choice === "accumulate") {
+          accCount++;
+          if (accCount >= 10) { accCount = 0; boxesEarned++; boxEarned = true; }
+        } else {
+          cardsRcvd++;
+        }
+
+        statsWs.getRange(foundRow, sCol("real_name") + 1).setValue(rName);
+        statsWs.getRange(foundRow, sCol("line_user_id") + 1).setValue(data.lineUserId || "");
+        statsWs.getRange(foundRow, sCol("total_plays") + 1).setValue(totalPlays);
+        statsWs.getRange(foundRow, sCol("accumulation_count") + 1).setValue(accCount);
+        statsWs.getRange(foundRow, sCol("cards_received") + 1).setValue(cardsRcvd);
+        statsWs.getRange(foundRow, sCol("boxes_earned") + 1).setValue(boxesEarned);
+        statsWs.getRange(foundRow, sCol("last_play_date") + 1).setValue(today);
+        statsRows[foundRow - 1][sCol("total_plays")] = totalPlays;
+        statsRows[foundRow - 1][sCol("accumulation_count")] = accCount;
+        statsRows[foundRow - 1][sCol("cards_received")] = cardsRcvd;
+        statsRows[foundRow - 1][sCol("boxes_earned")] = boxesEarned;
+      } else {
+        var newAcc = choice === "accumulate" ? 1 : 0;
+        var newCards = choice === "cards" ? 1 : 0;
+        accCount = newAcc;
+        statsWs.appendRow([
+          pName, data.displayName || "", rName, data.lineUserId || "",
+          1, newAcc, newCards, 0, 0, today
+        ]);
+        var newRow = [pName, data.displayName || "", rName, data.lineUserId || "", 1, newAcc, newCards, 0, 0, today];
+        statsRows.push(newRow);
+      }
+
+      results.push({ regId: regId, playerName: pName, choice: choice, accumulationCount: accCount, boxEarned: boxEarned });
     }
 
     lock.releaseLock();
@@ -589,18 +611,32 @@ function handleTournamentRegister(data) {
     var cfgWs = ss.getSheetByName(TAB_CONFIG);
     var groupStaff = _getConfigValue(cfgWs, "group_staff");
     if (groupStaff) {
-      var choiceText = choice === "accumulate" ? "สะสม (" + accCount + "/10)" : "รับการ์ด 2 ใบ";
-      var msg = "🏆 ลงทะเบียนแข่ง\n"
-        + "ชื่อ: " + (data.realName || data.displayName || "—") + "\n"
-        + "เลือก: " + choiceText + "\n"
-        + "รหัส: #" + regId;
-      if (boxEarned) msg += "\n\n🎁 สะสมครบ 10 ครั้ง ได้รับ Box!";
+      var payText = payMethod === "cash" ? "💵 เงินสด" : "📱 โอนเงิน";
+      var msg = "🏆 ลงทะเบียนแข่ง (" + players.length + " คน)\n" + payText + "\n";
+      for (var r = 0; r < results.length; r++) {
+        var res = results[r];
+        var cText = res.choice === "accumulate" ? "สะสม(" + res.accumulationCount + "/10)" : "รับการ์ด";
+        msg += "\n" + (r + 1) + ". " + res.playerName + " — " + cText;
+        if (res.boxEarned) msg += " 🎁 ได้ Box!";
+      }
+      msg += "\n\nรหัส: #" + groupId;
       _linePush(groupStaff, msg);
     }
 
+    if (data.lineUserId && data.lineUserId !== "dev_user") {
+      var custMsg = "🏆 ลงทะเบียนแข่งสำเร็จ!\nรหัส: #" + groupId + "\n";
+      for (var c = 0; c < results.length; c++) {
+        var cr = results[c];
+        var ct = cr.choice === "accumulate" ? "สะสม " + cr.accumulationCount + "/10" : "รับการ์ด 2 ใบ";
+        custMsg += "\n" + cr.playerName + ": " + ct;
+        if (cr.boxEarned) custMsg += "\n🎁 สะสมครบ 10! แจ้งสตาฟรับ Box";
+      }
+      if (payMethod === "transfer") custMsg += "\n\nสถานะสลิป: รอตรวจ";
+      _linePush(data.lineUserId, custMsg);
+    }
+
     return _cors(ContentService.createTextOutput(JSON.stringify({
-      success: true, regId: regId,
-      accumulationCount: accCount, boxEarned: boxEarned
+      success: true, groupId: groupId, results: results
     })));
   } catch (err) {
     try { lock.releaseLock(); } catch (_) {}
@@ -1099,46 +1135,46 @@ function handleApi(params) {
     var regWs = ss.getSheetByName(TAB_TOURNAMENT_REG);
     var statsWs2 = ss.getSheetByName(TAB_PLAYER_STATS);
 
-    var alreadyRegistered = false;
-    var todayReg = null;
+    var todayRegs = [];
     if (regWs && uid) {
       var rRows = regWs.getDataRange().getValues();
       var rHdr = rRows[0];
       var rCol = function(n) { return rHdr.indexOf(n); };
-      for (var ri = rRows.length - 1; ri >= 1; ri--) {
+      for (var ri = 1; ri < rRows.length; ri++) {
         if (String(rRows[ri][rCol("line_user_id")]) === uid && String(rRows[ri][rCol("event_date")]) === today) {
-          alreadyRegistered = true;
-          todayReg = {
+          todayRegs.push({
             reg_id: String(rRows[ri][rCol("reg_id")] || ""),
+            player_name: String(rRows[ri][rCol("player_name")] || ""),
             choice: String(rRows[ri][rCol("choice")] || ""),
             slip_status: String(rRows[ri][rCol("slip_status")] || ""),
-          };
-          break;
+          });
         }
       }
     }
 
-    var playerStats = { total_plays: 0, accumulation_count: 0, boxes_earned: 0, boxes_given: 0 };
+    var linkedStats = [];
     if (statsWs2 && uid) {
       var sRows2 = statsWs2.getDataRange().getValues();
       var sHdr2 = sRows2[0];
       var sC = function(n) { return sHdr2.indexOf(n); };
       for (var si = 1; si < sRows2.length; si++) {
         if (String(sRows2[si][sC("line_user_id")]) === uid) {
-          playerStats.total_plays = Number(sRows2[si][sC("total_plays")]) || 0;
-          playerStats.accumulation_count = Number(sRows2[si][sC("accumulation_count")]) || 0;
-          playerStats.boxes_earned = Number(sRows2[si][sC("boxes_earned")]) || 0;
-          playerStats.boxes_given = Number(sRows2[si][sC("boxes_given")]) || 0;
-          break;
+          linkedStats.push({
+            player_name: String(sRows2[si][sC("player_name")] || ""),
+            total_plays: Number(sRows2[si][sC("total_plays")]) || 0,
+            accumulation_count: Number(sRows2[si][sC("accumulation_count")]) || 0,
+            boxes_earned: Number(sRows2[si][sC("boxes_earned")]) || 0,
+            boxes_given: Number(sRows2[si][sC("boxes_given")]) || 0,
+          });
         }
       }
     }
 
     return _cors(ContentService.createTextOutput(JSON.stringify({
       event_date: today,
-      already_registered: alreadyRegistered,
-      today_reg: todayReg,
-      player: playerStats,
+      already_registered: todayRegs.length > 0,
+      today_regs: todayRegs,
+      linked_stats: linkedStats,
     })));
   }
 
@@ -1154,10 +1190,13 @@ function handleApi(params) {
       if (String(tRows[ti][tCol("event_date")]) !== date) continue;
       players.push({
         reg_id: String(tRows[ti][tCol("reg_id")] || ""),
+        group_id: String(tRows[ti][tCol("group_id")] || ""),
         display_name: String(tRows[ti][tCol("display_name")] || ""),
         real_name: String(tRows[ti][tCol("real_name")] || ""),
+        player_name: String(tRows[ti][tCol("player_name")] || ""),
         slip_url: String(tRows[ti][tCol("slip_url")] || ""),
         slip_status: String(tRows[ti][tCol("slip_status")] || ""),
+        payment_method: String(tRows[ti][tCol("payment_method")] || ""),
         choice: String(tRows[ti][tCol("choice")] || ""),
         cards_given: String(tRows[ti][tCol("cards_given")] || ""),
         phone: String(tRows[ti][tCol("phone")] || ""),
@@ -1176,6 +1215,7 @@ function handleApi(params) {
     var stats = [];
     for (var pi = 1; pi < psRows.length; pi++) {
       stats.push({
+        player_name: String(psRows[pi][psCol("player_name")] || ""),
         line_user_id: String(psRows[pi][psCol("line_user_id")] || ""),
         display_name: String(psRows[pi][psCol("display_name")] || ""),
         real_name: String(psRows[pi][psCol("real_name")] || ""),
@@ -1213,15 +1253,15 @@ function handleApi(params) {
   }
 
   if (action === "tournament_give_box") {
-    var boxUid = params.line_user_id || "";
-    if (!boxUid) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "missing line_user_id" })));
+    var boxPlayer = params.player_name || "";
+    if (!boxPlayer) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "missing player_name" })));
     var bWs = ss.getSheetByName(TAB_PLAYER_STATS);
     if (!bWs) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "no player_stats tab" })));
     var bRows = bWs.getDataRange().getValues();
     var bHdr = bRows[0];
     var bCol = function(n) { return bHdr.indexOf(n); };
     for (var bi = 1; bi < bRows.length; bi++) {
-      if (String(bRows[bi][bCol("line_user_id")]) === boxUid) {
+      if (String(bRows[bi][bCol("player_name")]).trim() === boxPlayer.trim()) {
         var given = Number(bRows[bi][bCol("boxes_given")]) || 0;
         given++;
         bWs.getRange(bi + 1, bCol("boxes_given") + 1).setValue(given);
