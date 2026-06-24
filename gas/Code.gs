@@ -1280,6 +1280,79 @@ function handleApi(params) {
     return _cors(ContentService.createTextOutput(JSON.stringify({ error: "player not found" })));
   }
 
+  if (action === "tournament_lookup") {
+    var lookupId = String(params.group_id || params.reg_id || "").trim();
+    if (!lookupId) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "missing id" })));
+    var luWs = ss.getSheetByName(TAB_TOURNAMENT_REG);
+    if (!luWs) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "no data" })));
+    var luRows = luWs.getDataRange().getValues();
+    var luHdr = luRows[0];
+    var luCol = function(n) { return luHdr.indexOf(n); };
+    var found = [];
+    for (var li = 1; li < luRows.length; li++) {
+      var gid = String(luRows[li][luCol("group_id")] || "");
+      var rid = String(luRows[li][luCol("reg_id")] || "");
+      if (gid === lookupId || rid === lookupId) {
+        found.push({
+          reg_id: rid,
+          group_id: gid,
+          player_name: String(luRows[li][luCol("player_name")] || ""),
+          real_name: String(luRows[li][luCol("real_name")] || ""),
+          choice: String(luRows[li][luCol("choice")] || ""),
+          cards_given: String(luRows[li][luCol("cards_given")] || ""),
+          slip_status: String(luRows[li][luCol("slip_status")] || ""),
+          payment_method: String(luRows[li][luCol("payment_method")] || ""),
+          event_date: String(luRows[li][luCol("event_date")] || ""),
+          row_num: li + 1,
+        });
+      }
+    }
+    if (found.length === 0) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "not found" })));
+
+    var statsWsLu = ss.getSheetByName(TAB_PLAYER_STATS);
+    var statsMap = {};
+    if (statsWsLu) {
+      var stRows = statsWsLu.getDataRange().getValues();
+      var stHdr = stRows[0];
+      var stCol = function(n) { return stHdr.indexOf(n); };
+      for (var si = 1; si < stRows.length; si++) {
+        statsMap[String(stRows[si][stCol("player_name")]).trim()] = {
+          accumulation_count: Number(stRows[si][stCol("accumulation_count")]) || 0,
+          boxes_earned: Number(stRows[si][stCol("boxes_earned")]) || 0,
+          boxes_given: Number(stRows[si][stCol("boxes_given")]) || 0,
+        };
+      }
+    }
+    for (var fi = 0; fi < found.length; fi++) {
+      var pStat = statsMap[found[fi].player_name] || {};
+      found[fi].accumulation_count = pStat.accumulation_count || 0;
+      found[fi].boxes_earned = pStat.boxes_earned || 0;
+      found[fi].boxes_given_count = pStat.boxes_given || 0;
+    }
+
+    return _cors(ContentService.createTextOutput(JSON.stringify({ players: found })));
+  }
+
+  if (action === "tournament_give_cards") {
+    var gcRegId = String(params.reg_id || "").trim();
+    if (!gcRegId) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "missing reg_id" })));
+    var gcWs = ss.getSheetByName(TAB_TOURNAMENT_REG);
+    if (!gcWs) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "no data" })));
+    var gcRows = gcWs.getDataRange().getValues();
+    var gcHdr = gcRows[0];
+    var gcCol = function(n) { return gcHdr.indexOf(n); };
+    for (var gi = 1; gi < gcRows.length; gi++) {
+      if (String(gcRows[gi][gcCol("reg_id")]) === gcRegId) {
+        if (String(gcRows[gi][gcCol("cards_given")]) === "TRUE") {
+          return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true, already: true })));
+        }
+        gcWs.getRange(gi + 1, gcCol("cards_given") + 1).setValue("TRUE");
+        return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true, already: false })));
+      }
+    }
+    return _cors(ContentService.createTextOutput(JSON.stringify({ error: "not found" })));
+  }
+
   return _cors(ContentService.createTextOutput(JSON.stringify({ error: "unknown action" })));
 }
 
