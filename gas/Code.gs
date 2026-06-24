@@ -13,6 +13,8 @@ const TAB_CONFIG  = "_config";
 const TAB_STOCK   = "stock";
 const TAB_STOCK_BRANCH = "stock_branch";
 const TAB_SHIPMENTS    = "shipments";
+const TAB_TOURNAMENT_REG = "tournament_reg";
+const TAB_PLAYER_STATS   = "player_stats";
 
 const BRANCHES = ["ต้นสักคอร์เนอร์", "เมืองทองธานี", "ศรีนครินทร์"];
 
@@ -121,6 +123,10 @@ function doPost(e) {
 
     if (data._action === "confirmSlip") {
       return handleConfirmSlip(data);
+    }
+
+    if (data._action === "tournamentRegister") {
+      return handleTournamentRegister(data);
     }
 
     if (Array.isArray(data.events)) {
@@ -474,6 +480,131 @@ function saveSlipToDrive(base64, orderId) {
     return "https://drive.google.com/thumbnail?id=" + file.getId() + "&sz=w800";
   } catch (err) {
     return "";
+  }
+}
+
+// ── Tournament ────────────────────────────────────────────────────────────────
+
+function _genTournamentRegId() {
+  var now = new Date();
+  var pad = function(n) { return String(n).padStart(2, "0"); };
+  var yy = String(now.getFullYear()).slice(-2);
+  var prefix = "TR" + yy + pad(now.getMonth() + 1) + pad(now.getDate());
+  var propKey = "treg_seq_" + prefix;
+  var seq = parseInt(PROPS.getProperty(propKey) || "0", 10) + 1;
+  PROPS.setProperty(propKey, String(seq));
+  return prefix + String(seq).padStart(3, "0");
+}
+
+function _ensureTab(ss, tabName, headers) {
+  var ws = ss.getSheetByName(tabName);
+  if (!ws) {
+    ws = ss.insertSheet(tabName);
+    ws.appendRow(headers);
+  }
+  return ws;
+}
+
+function handleTournamentRegister(data) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var regId = _genTournamentRegId();
+    var now = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd'T'HH:mm:ss'+07:00'");
+    var today = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd");
+
+    var slipUrl = "";
+    if (data.slipBase64) {
+      slipUrl = saveSlipToDrive(data.slipBase64, regId);
+    }
+
+    var regWs = _ensureTab(ss, TAB_TOURNAMENT_REG, [
+      "reg_id", "timestamp", "event_date", "line_user_id", "display_name",
+      "real_name", "phone", "slip_url", "slip_status", "choice", "cards_given", "note"
+    ]);
+    regWs.appendRow([
+      regId, now, today,
+      data.lineUserId || "", data.displayName || "", data.realName || "",
+      data.phone || "", slipUrl, "pending",
+      data.choice || "cards", "", ""
+    ]);
+
+    var statsWs = _ensureTab(ss, TAB_PLAYER_STATS, [
+      "line_user_id", "display_name", "real_name", "total_plays",
+      "accumulation_count", "cards_received", "boxes_earned", "boxes_given", "last_play_date"
+    ]);
+    var statsRows = statsWs.getDataRange().getValues();
+    var sHdr = statsRows[0];
+    var sCol = function(name) { return sHdr.indexOf(name); };
+    var foundRow = -1;
+    for (var i = 1; i < statsRows.length; i++) {
+      if (String(statsRows[i][sCol("line_user_id")]) === String(data.lineUserId)) {
+        foundRow = i + 1;
+        break;
+      }
+    }
+
+    var accCount = 0;
+    var boxEarned = false;
+    var choice = data.choice || "cards";
+
+    if (foundRow > 0) {
+      var totalPlays = Number(statsRows[foundRow - 1][sCol("total_plays")]) || 0;
+      accCount = Number(statsRows[foundRow - 1][sCol("accumulation_count")]) || 0;
+      var cardsRcvd = Number(statsRows[foundRow - 1][sCol("cards_received")]) || 0;
+      var boxesEarned = Number(statsRows[foundRow - 1][sCol("boxes_earned")]) || 0;
+
+      totalPlays++;
+      if (choice === "accumulate") {
+        accCount++;
+        if (accCount >= 10) {
+          accCount = 0;
+          boxesEarned++;
+          boxEarned = true;
+        }
+      } else {
+        cardsRcvd++;
+      }
+
+      statsWs.getRange(foundRow, sCol("display_name") + 1).setValue(data.displayName || "");
+      statsWs.getRange(foundRow, sCol("real_name") + 1).setValue(data.realName || "");
+      statsWs.getRange(foundRow, sCol("total_plays") + 1).setValue(totalPlays);
+      statsWs.getRange(foundRow, sCol("accumulation_count") + 1).setValue(accCount);
+      statsWs.getRange(foundRow, sCol("cards_received") + 1).setValue(cardsRcvd);
+      statsWs.getRange(foundRow, sCol("boxes_earned") + 1).setValue(boxesEarned);
+      statsWs.getRange(foundRow, sCol("last_play_date") + 1).setValue(today);
+    } else {
+      var newAcc = choice === "accumulate" ? 1 : 0;
+      var newCards = choice === "cards" ? 1 : 0;
+      accCount = newAcc;
+      statsWs.appendRow([
+        data.lineUserId || "", data.displayName || "", data.realName || "",
+        1, newAcc, newCards, 0, 0, today
+      ]);
+    }
+
+    lock.releaseLock();
+
+    var cfgWs = ss.getSheetByName(TAB_CONFIG);
+    var groupStaff = _getConfigValue(cfgWs, "group_staff");
+    if (groupStaff) {
+      var choiceText = choice === "accumulate" ? "สะสม (" + accCount + "/10)" : "รับการ์ด 2 ใบ";
+      var msg = "🏆 ลงทะเบียนแข่ง\n"
+        + "ชื่อ: " + (data.realName || data.displayName || "—") + "\n"
+        + "เลือก: " + choiceText + "\n"
+        + "รหัส: #" + regId;
+      if (boxEarned) msg += "\n\n🎁 สะสมครบ 10 ครั้ง ได้รับ Box!";
+      _linePush(groupStaff, msg);
+    }
+
+    return _cors(ContentService.createTextOutput(JSON.stringify({
+      success: true, regId: regId,
+      accumulationCount: accCount, boxEarned: boxEarned
+    })));
+  } catch (err) {
+    try { lock.releaseLock(); } catch (_) {}
+    return _cors(ContentService.createTextOutput(JSON.stringify({ error: err.message })));
   }
 }
 
@@ -959,6 +1090,145 @@ function handleApi(params) {
     }
     wList.reverse();
     return _cors(ContentService.createTextOutput(JSON.stringify({ withdrawals: wList.slice(0, 50) })));
+  }
+
+  // ── Tournament API ──
+  if (action === "tournament_status") {
+    var uid = params.line_user_id || "";
+    var today = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd");
+    var regWs = ss.getSheetByName(TAB_TOURNAMENT_REG);
+    var statsWs2 = ss.getSheetByName(TAB_PLAYER_STATS);
+
+    var alreadyRegistered = false;
+    var todayReg = null;
+    if (regWs && uid) {
+      var rRows = regWs.getDataRange().getValues();
+      var rHdr = rRows[0];
+      var rCol = function(n) { return rHdr.indexOf(n); };
+      for (var ri = rRows.length - 1; ri >= 1; ri--) {
+        if (String(rRows[ri][rCol("line_user_id")]) === uid && String(rRows[ri][rCol("event_date")]) === today) {
+          alreadyRegistered = true;
+          todayReg = {
+            reg_id: String(rRows[ri][rCol("reg_id")] || ""),
+            choice: String(rRows[ri][rCol("choice")] || ""),
+            slip_status: String(rRows[ri][rCol("slip_status")] || ""),
+          };
+          break;
+        }
+      }
+    }
+
+    var playerStats = { total_plays: 0, accumulation_count: 0, boxes_earned: 0, boxes_given: 0 };
+    if (statsWs2 && uid) {
+      var sRows2 = statsWs2.getDataRange().getValues();
+      var sHdr2 = sRows2[0];
+      var sC = function(n) { return sHdr2.indexOf(n); };
+      for (var si = 1; si < sRows2.length; si++) {
+        if (String(sRows2[si][sC("line_user_id")]) === uid) {
+          playerStats.total_plays = Number(sRows2[si][sC("total_plays")]) || 0;
+          playerStats.accumulation_count = Number(sRows2[si][sC("accumulation_count")]) || 0;
+          playerStats.boxes_earned = Number(sRows2[si][sC("boxes_earned")]) || 0;
+          playerStats.boxes_given = Number(sRows2[si][sC("boxes_given")]) || 0;
+          break;
+        }
+      }
+    }
+
+    return _cors(ContentService.createTextOutput(JSON.stringify({
+      event_date: today,
+      already_registered: alreadyRegistered,
+      today_reg: todayReg,
+      player: playerStats,
+    })));
+  }
+
+  if (action === "tournament_players") {
+    var date = params.date || Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd");
+    var tRegWs = ss.getSheetByName(TAB_TOURNAMENT_REG);
+    if (!tRegWs) return _cors(ContentService.createTextOutput(JSON.stringify({ players: [] })));
+    var tRows = tRegWs.getDataRange().getValues();
+    var tHdr = tRows[0];
+    var tCol = function(n) { return tHdr.indexOf(n); };
+    var players = [];
+    for (var ti = 1; ti < tRows.length; ti++) {
+      if (String(tRows[ti][tCol("event_date")]) !== date) continue;
+      players.push({
+        reg_id: String(tRows[ti][tCol("reg_id")] || ""),
+        display_name: String(tRows[ti][tCol("display_name")] || ""),
+        real_name: String(tRows[ti][tCol("real_name")] || ""),
+        slip_url: String(tRows[ti][tCol("slip_url")] || ""),
+        slip_status: String(tRows[ti][tCol("slip_status")] || ""),
+        choice: String(tRows[ti][tCol("choice")] || ""),
+        cards_given: String(tRows[ti][tCol("cards_given")] || ""),
+        phone: String(tRows[ti][tCol("phone")] || ""),
+        timestamp: String(tRows[ti][tCol("timestamp")] || ""),
+      });
+    }
+    return _cors(ContentService.createTextOutput(JSON.stringify({ players: players })));
+  }
+
+  if (action === "tournament_player_stats") {
+    var psWs = ss.getSheetByName(TAB_PLAYER_STATS);
+    if (!psWs) return _cors(ContentService.createTextOutput(JSON.stringify({ stats: [] })));
+    var psRows = psWs.getDataRange().getValues();
+    var psHdr = psRows[0];
+    var psCol = function(n) { return psHdr.indexOf(n); };
+    var stats = [];
+    for (var pi = 1; pi < psRows.length; pi++) {
+      stats.push({
+        line_user_id: String(psRows[pi][psCol("line_user_id")] || ""),
+        display_name: String(psRows[pi][psCol("display_name")] || ""),
+        real_name: String(psRows[pi][psCol("real_name")] || ""),
+        total_plays: Number(psRows[pi][psCol("total_plays")]) || 0,
+        accumulation_count: Number(psRows[pi][psCol("accumulation_count")]) || 0,
+        cards_received: Number(psRows[pi][psCol("cards_received")]) || 0,
+        boxes_earned: Number(psRows[pi][psCol("boxes_earned")]) || 0,
+        boxes_given: Number(psRows[pi][psCol("boxes_given")]) || 0,
+        last_play_date: String(psRows[pi][psCol("last_play_date")] || ""),
+      });
+    }
+    return _cors(ContentService.createTextOutput(JSON.stringify({ stats: stats })));
+  }
+
+  if (action === "tournament_update_reg") {
+    var regId = params.reg_id || "";
+    var field = params.field || "";
+    var value = params.value || "";
+    if (!regId || !field) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "missing params" })));
+    var allowed = ["slip_status", "cards_given", "note"];
+    if (allowed.indexOf(field) < 0) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "invalid field" })));
+    var tuWs = ss.getSheetByName(TAB_TOURNAMENT_REG);
+    if (!tuWs) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "no tournament_reg tab" })));
+    var tuRows = tuWs.getDataRange().getValues();
+    var tuHdr = tuRows[0];
+    var tuCol = function(n) { return tuHdr.indexOf(n); };
+    for (var ui = 1; ui < tuRows.length; ui++) {
+      if (String(tuRows[ui][tuCol("reg_id")]) === regId) {
+        var fc = tuCol(field);
+        if (fc >= 0) tuWs.getRange(ui + 1, fc + 1).setValue(value);
+        return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true })));
+      }
+    }
+    return _cors(ContentService.createTextOutput(JSON.stringify({ error: "reg not found" })));
+  }
+
+  if (action === "tournament_give_box") {
+    var boxUid = params.line_user_id || "";
+    if (!boxUid) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "missing line_user_id" })));
+    var bWs = ss.getSheetByName(TAB_PLAYER_STATS);
+    if (!bWs) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "no player_stats tab" })));
+    var bRows = bWs.getDataRange().getValues();
+    var bHdr = bRows[0];
+    var bCol = function(n) { return bHdr.indexOf(n); };
+    for (var bi = 1; bi < bRows.length; bi++) {
+      if (String(bRows[bi][bCol("line_user_id")]) === boxUid) {
+        var given = Number(bRows[bi][bCol("boxes_given")]) || 0;
+        given++;
+        bWs.getRange(bi + 1, bCol("boxes_given") + 1).setValue(given);
+        return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true, boxes_given: given })));
+      }
+    }
+    return _cors(ContentService.createTextOutput(JSON.stringify({ error: "player not found" })));
   }
 
   return _cors(ContentService.createTextOutput(JSON.stringify({ error: "unknown action" })));
