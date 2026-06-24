@@ -203,7 +203,7 @@ with tab_today:
                 s_icon = "✅" if slip_st in ("verified", "cash") else ("❌" if slip_st == "rejected" else "🟡")
                 c_icon = "📦 สะสม" if choice == "accumulate" else "🎴 การ์ด"
                 pay_icon = "💵" if pay == "cash" else "📱"
-                given_icon = " ✅แจก" if cards_given == "TRUE" else ""
+                given_icon = " ✅แจก" if str(cards_given).lower() == "true" else ""
 
                 label = f"{s_icon} **#{rid}** · {pname} · {c_icon} · {pay_icon}{given_icon}"
 
@@ -239,7 +239,7 @@ with tab_today:
                                     st.cache_data.clear()
                                     st.rerun()
                         with c3:
-                            if choice == "cards" and cards_given != "TRUE":
+                            if choice == "cards" and str(cards_given).lower() != "true":
                                 if st.button("🎴 แจกแล้ว", key=f"give_{rid}"):
                                     update_reg_field(rid, "cards_given", "TRUE")
                                     st.cache_data.clear()

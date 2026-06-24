@@ -1325,7 +1325,7 @@ function handleApi(params) {
 
       if (ch === "cards") {
         cardsTotal++;
-        if (cg === "TRUE") cardsGiven++;
+        if (String(cg).toLowerCase() === "true") cardsGiven++;
       } else {
         accumTotal++;
         accumulators.push(String(sumRows[si][sc("player_name")] || ""));
@@ -1435,7 +1435,7 @@ function handleApi(params) {
     var gcCol = function(n) { return gcHdr.indexOf(n); };
     for (var gi = 1; gi < gcRows.length; gi++) {
       if (String(gcRows[gi][gcCol("reg_id")]) === gcRegId) {
-        if (String(gcRows[gi][gcCol("cards_given")]) === "TRUE") {
+        if (String(gcRows[gi][gcCol("cards_given")]).toLowerCase() === "true") {
           return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true, already: true })));
         }
         gcWs.getRange(gi + 1, gcCol("cards_given") + 1).setValue("TRUE");
