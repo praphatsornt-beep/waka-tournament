@@ -611,8 +611,10 @@ function handleTournamentRegister(data) {
     var cfgWs = ss.getSheetByName(TAB_CONFIG);
     var groupStaff = _getConfigValue(cfgWs, "group_staff");
     if (groupStaff) {
-      var payText = payMethod === "cash" ? "💵 เงินสด" : "📱 โอนเงิน";
-      var msg = "🏆 ลงทะเบียนแข่ง (" + players.length + " คน)\n" + payText + "\n";
+      var bankName = data.bank || "";
+      var payText = payMethod === "cash" ? "💵 เงินสด" : "📱 " + (bankName || "โอนเงิน");
+      var totalAmount = players.length * 200;
+      var msg = "🏆 ลงทะเบียนแข่ง (" + players.length + " คน)\n" + payText + " " + totalAmount + "฿\n";
       for (var r = 0; r < results.length; r++) {
         var res = results[r];
         var cText = res.choice === "accumulate" ? "สะสม(" + res.accumulationCount + "/10)" : "รับการ์ด";
