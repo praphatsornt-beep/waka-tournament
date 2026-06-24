@@ -271,12 +271,22 @@ function doPost(e) {
     // LINE push หลัง release lock — ไม่ block order ถัดไป
     try {
       var cfgWs   = ss.getSheetByName(TAB_CONFIG);
-      var problemSlip = ["สงสัยปลอม","สลิปซ้ำ","บัญชีไม่ตรง","ยอดไม่ตรง"].indexOf(slipStatus) >= 0;
-      if (problemSlip) {
-        var financeId = _getConfigValue(cfgWs, "finance_line_id");
-        if (financeId) {
-          _linePush(financeId, "⚠️ ออเดอร์มีปัญหา #" + orderId + "\nสถานะ: " + slipStatus + "\n" + (slipNote || "") + "\n\nตรวจสอบ:\nhttps://waka-tournament-e6wsqmhuhhexratyiub65f.streamlit.app");
-        }
+      var financeId = _getConfigValue(cfgWs, "finance_line_id");
+      var streamlitUrl = "https://waka-tournament-e6wsqmhuhhexratyiub65f.streamlit.app/orders";
+      if (financeId && slipStatus !== "ยืนยัน") {
+        var icon = slipStatus === "ไม่มีสลิป" ? "📩" : "⚠️";
+        var itemsSummary = (data.items || []).map(function(i) {
+          var u = i.type === "box" ? "กล่อง" : "ซอง";
+          return "  - " + i.name + " (" + u + ") x" + (i.qty || 1);
+        }).join("\n");
+        _linePush(financeId, icon + " ออเดอร์ต้องตรวจ #" + orderId
+          + "\nลูกค้า: " + (data.displayName || "") + (data.realName ? " (" + data.realName + ")" : "")
+          + "\nสาขา: " + (data.branch || "")
+          + "\nยอด: " + data.total + " บาท"
+          + "\n\n" + itemsSummary
+          + "\n\nสลิป: " + slipStatus
+          + (slipNote ? "\n" + slipNote : "")
+          + "\n\nจัดการออเดอร์:\n" + streamlitUrl);
       }
       if (data.lineUserId) notifyCustomer(data.lineUserId, { orderId: orderId, items: data.items, displayName: data.displayName, branch: data.branch, address: data.address, total: data.total, slipStatus: slipStatus });
     } catch(_) {}
