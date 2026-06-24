@@ -1280,6 +1280,28 @@ function handleApi(params) {
     return _cors(ContentService.createTextOutput(JSON.stringify({ error: "player not found" })));
   }
 
+  if (action === "verify_staff_pin") {
+    var pin = String(params.pin || "").trim();
+    if (!pin) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "missing pin" })));
+    var cfgWs3 = ss.getSheetByName(TAB_CONFIG);
+    var adminPin = _getConfigValue(cfgWs3, "admin_pin") || "waka99";
+    if (pin === adminPin) {
+      return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true, role: "admin", branch: "ทั้งหมด" })));
+    }
+    if (cfgWs3) {
+      var cfgRows3 = cfgWs3.getDataRange().getValues();
+      for (var ci = 1; ci < cfgRows3.length; ci++) {
+        var key = String(cfgRows3[ci][0] || "");
+        var val = String(cfgRows3[ci][1] || "");
+        if (key.indexOf("staff_pin_") === 0 && val === pin) {
+          var branchName = key.replace("staff_pin_", "");
+          return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true, role: "staff", branch: branchName })));
+        }
+      }
+    }
+    return _cors(ContentService.createTextOutput(JSON.stringify({ error: "invalid" })));
+  }
+
   if (action === "tournament_lookup") {
     var lookupId = String(params.group_id || params.reg_id || "").trim();
     if (!lookupId) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "missing id" })));
