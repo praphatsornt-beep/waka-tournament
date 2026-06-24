@@ -160,11 +160,15 @@ with tab_today:
         if today_df.empty:
             st.info(f"ไม่มีผู้ลงทะเบียนวันที่ {today_str}")
         else:
-            verified = today_df[today_df.get("slip_status", pd.Series(dtype=str)).isin(["verified", "cash"])]
-            pending = today_df[today_df.get("slip_status", pd.Series(dtype=str)) == "pending"]
-            cards_count = today_df[today_df.get("choice", pd.Series(dtype=str)) == "cards"]
-            accum_count = today_df[today_df.get("choice", pd.Series(dtype=str)) == "accumulate"]
-            cash_count = today_df[today_df.get("payment_method", pd.Series(dtype=str)) == "cash"]
+            slip_col = today_df["slip_status"] if "slip_status" in today_df.columns else pd.Series("", index=today_df.index)
+            choice_col = today_df["choice"] if "choice" in today_df.columns else pd.Series("", index=today_df.index)
+            pay_col = today_df["payment_method"] if "payment_method" in today_df.columns else pd.Series("", index=today_df.index)
+
+            verified = today_df[slip_col.isin(["verified", "cash"])]
+            pending = today_df[slip_col == "pending"]
+            cards_count = today_df[choice_col == "cards"]
+            accum_count = today_df[choice_col == "accumulate"]
+            cash_count = today_df[pay_col == "cash"]
 
             kpi = (
                 f"📋 **{len(today_df)}** คน &nbsp;|&nbsp; "
@@ -291,7 +295,8 @@ with tab_slips:
     if df_reg2.empty:
         st.info("ยังไม่มีข้อมูล")
     else:
-        pending_df = df_reg2[df_reg2.get("slip_status", pd.Series(dtype=str)) == "pending"].copy()
+        slip_col2 = df_reg2["slip_status"] if "slip_status" in df_reg2.columns else pd.Series("", index=df_reg2.index)
+        pending_df = df_reg2[slip_col2 == "pending"].copy()
         pending_df = pending_df.iloc[::-1].reset_index(drop=True)
 
         if pending_df.empty:
