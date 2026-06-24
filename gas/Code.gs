@@ -524,7 +524,7 @@ function handleTournamentRegister(data) {
     var regWs = _ensureTab(ss, TAB_TOURNAMENT_REG, [
       "reg_id", "timestamp", "event_date", "group_id", "line_user_id", "display_name",
       "real_name", "player_name", "phone", "slip_url", "slip_status", "payment_method",
-      "choice", "cards_given", "note"
+      "bank", "choice", "cards_given", "note"
     ]);
 
     var statsWs = _ensureTab(ss, TAB_PLAYER_STATS, [
@@ -552,7 +552,7 @@ function handleTournamentRegister(data) {
         regId, now, today, groupId,
         data.lineUserId || "", data.displayName || "",
         rName, pName, data.phone || "", slipUrl, slipStatus, payMethod,
-        choice, "", ""
+        data.bank || "", choice, "", ""
       ]);
 
       var foundRow = -1;
@@ -1300,6 +1300,76 @@ function handleApi(params) {
       }
     }
     return _cors(ContentService.createTextOutput(JSON.stringify({ error: "invalid" })));
+  }
+
+  if (action === "tournament_summary") {
+    var sumDate = params.date || Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd");
+    var sumWs = ss.getSheetByName(TAB_TOURNAMENT_REG);
+    if (!sumWs) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "no data" })));
+    var sumRows = sumWs.getDataRange().getValues();
+    var sumHdr = sumRows[0];
+    var sc = function(n) { return sumHdr.indexOf(n); };
+
+    var totalPlayers = 0, cardsGiven = 0, cardsTotal = 0, accumTotal = 0;
+    var cashAmount = 0, transferAmount = 0;
+    var bankBreakdown = {};
+    var accumulators = [];
+
+    for (var si = 1; si < sumRows.length; si++) {
+      if (String(sumRows[si][sc("event_date")]) !== sumDate) continue;
+      totalPlayers++;
+      var ch = String(sumRows[si][sc("choice")] || "");
+      var pm = String(sumRows[si][sc("payment_method")] || "transfer");
+      var bk = String(sumRows[si][sc("bank")] || "ไม่ระบุ");
+      var cg = String(sumRows[si][sc("cards_given")] || "");
+
+      if (ch === "cards") {
+        cardsTotal++;
+        if (cg === "TRUE") cardsGiven++;
+      } else {
+        accumTotal++;
+        accumulators.push(String(sumRows[si][sc("player_name")] || ""));
+      }
+
+      if (pm === "cash") {
+        cashAmount += 200;
+      } else {
+        transferAmount += 200;
+        if (!bankBreakdown[bk]) bankBreakdown[bk] = 0;
+        bankBreakdown[bk] += 200;
+      }
+    }
+
+    var statsWsSm = ss.getSheetByName(TAB_PLAYER_STATS);
+    var accumStats = [];
+    if (statsWsSm && accumulators.length > 0) {
+      var psRows = statsWsSm.getDataRange().getValues();
+      var psHdr = psRows[0];
+      var psc = function(n) { return psHdr.indexOf(n); };
+      for (var pi = 1; pi < psRows.length; pi++) {
+        var pn = String(psRows[pi][psc("player_name")] || "").trim();
+        if (accumulators.indexOf(pn) >= 0) {
+          accumStats.push({
+            player_name: pn,
+            accumulation_count: Number(psRows[pi][psc("accumulation_count")]) || 0,
+            boxes_earned: Number(psRows[pi][psc("boxes_earned")]) || 0,
+          });
+        }
+      }
+    }
+
+    return _cors(ContentService.createTextOutput(JSON.stringify({
+      date: sumDate,
+      total_players: totalPlayers,
+      cards_total: cardsTotal,
+      cards_given: cardsGiven,
+      accum_total: accumTotal,
+      accum_stats: accumStats,
+      cash_amount: cashAmount,
+      transfer_amount: transferAmount,
+      bank_breakdown: bankBreakdown,
+      total_amount: cashAmount + transferAmount,
+    })));
   }
 
   if (action === "tournament_lookup") {
