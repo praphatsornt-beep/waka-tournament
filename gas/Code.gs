@@ -1274,6 +1274,10 @@ function handleApi(params) {
         var given = Number(bRows[bi][bCol("boxes_given")]) || 0;
         given++;
         bWs.getRange(bi + 1, bCol("boxes_given") + 1).setValue(given);
+        var boxUid = String(bRows[bi][bCol("line_user_id")] || "");
+        if (boxUid && boxUid !== "dev_user") {
+          _linePush(boxUid, "🎁 รับ Box เรียบร้อย!\nชื่อแข่ง: " + boxPlayer + "\nBox ที่ได้: " + given);
+        }
         return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true, boxes_given: given })));
       }
     }
@@ -1439,6 +1443,16 @@ function handleApi(params) {
           return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true, already: true })));
         }
         gcWs.getRange(gi + 1, gcCol("cards_given") + 1).setValue("TRUE");
+        var gcUid = String(gcRows[gi][gcCol("line_user_id")] || "");
+        var gcName = String(gcRows[gi][gcCol("player_name")] || gcRows[gi][gcCol("real_name")] || "");
+        var gcChoice = String(gcRows[gi][gcCol("choice")] || "");
+        if (gcUid && gcUid !== "dev_user") {
+          var gcMsg = "🎴 รับการ์ดครบแล้ว!\nชื่อแข่ง: " + gcName;
+          if (gcChoice === "accumulate") {
+            gcMsg = "📦 บันทึกสะสมเรียบร้อย!\nชื่อแข่ง: " + gcName;
+          }
+          _linePush(gcUid, gcMsg);
+        }
         return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true, already: false })));
       }
     }
