@@ -624,14 +624,23 @@ function handleTournamentRegister(data) {
     }
 
     if (data.lineUserId && data.lineUserId !== "dev_user") {
-      var custMsg = "🏆 ลงทะเบียนแข่งสำเร็จ!\nรหัส: #" + groupId + "\n";
+      var totalAmount = players.length * 200;
+      var payLabel = payMethod === "cash" ? "💵 เงินสด" : "📱 โอนเงิน";
+      var custMsg = "🏆 ลงทะเบียนแข่งสำเร็จ!"
+        + "\nรหัส: #" + groupId
+        + "\nจำนวน: " + players.length + " คน"
+        + "\nยอดเงิน: " + totalAmount + " บาท (" + payLabel + ")"
+        + "\n";
       for (var c = 0; c < results.length; c++) {
         var cr = results[c];
-        var ct = cr.choice === "accumulate" ? "สะสม " + cr.accumulationCount + "/10" : "รับการ์ด 2 ใบ";
-        custMsg += "\n" + cr.playerName + ": " + ct;
-        if (cr.boxEarned) custMsg += "\n🎁 สะสมครบ 10! แจ้งสตาฟรับ Box";
+        if (cr.choice === "accumulate") {
+          custMsg += "\n📦 " + cr.playerName + ": สะสม " + cr.accumulationCount + "/10";
+        } else {
+          custMsg += "\n🎴 " + cr.playerName + ": รับการ์ด 2 ใบ";
+        }
+        if (cr.boxEarned) custMsg += "\n🎁 " + cr.playerName + " สะสมครบ 10! แจ้งสตาฟรับ Box ได้เลย";
       }
-      if (payMethod === "transfer") custMsg += "\n\nสถานะสลิป: รอตรวจ";
+      if (payMethod === "transfer") custMsg += "\n\n📋 สถานะสลิป: รอตรวจ";
       _linePush(data.lineUserId, custMsg);
     }
 
