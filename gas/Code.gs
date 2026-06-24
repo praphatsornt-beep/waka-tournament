@@ -634,7 +634,11 @@ function handleTournamentRegister(data) {
       for (var c = 0; c < results.length; c++) {
         var cr = results[c];
         if (cr.choice === "accumulate") {
-          custMsg += "\n📦 " + cr.playerName + ": สะสม " + cr.accumulationCount + "/10";
+          var remain = 10 - cr.accumulationCount;
+          custMsg += "\n📦 " + cr.playerName + ": สะสมครั้งที่ " + cr.accumulationCount + "/10";
+          if (remain > 0) {
+            custMsg += "\n   เหลืออีก " + remain + " ครั้งได้ Box!";
+          }
         } else {
           custMsg += "\n🎴 " + cr.playerName + ": รับการ์ด 2 ใบ";
         }
