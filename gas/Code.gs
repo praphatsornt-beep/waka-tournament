@@ -1403,7 +1403,9 @@ function handleApi(params) {
           choice: String(luRows[li][luCol("choice")] || ""),
           cards_given: String(luRows[li][luCol("cards_given")] || ""),
           slip_status: String(luRows[li][luCol("slip_status")] || ""),
+          slip_url: String(luRows[li][luCol("slip_url")] || ""),
           payment_method: String(luRows[li][luCol("payment_method")] || ""),
+          bank: String(luRows[li][luCol("bank")] || ""),
           event_date: String(luRows[li][luCol("event_date")] || ""),
           row_num: li + 1,
         });
