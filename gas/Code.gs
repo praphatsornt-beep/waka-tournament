@@ -74,6 +74,7 @@ function doGet(e) {
       var limit_box  = catRows[i][9];
       var limit_pack = catRows[i][10];
       var barcode    = catRows[i][11] || "";
+      var notice     = catRows[i][12] || "";
       catalog.push({
         name:       String(name),
         category:   String(category || ""),
@@ -84,6 +85,7 @@ function doGet(e) {
         limit_box:  (limit_box === "" || limit_box === undefined || limit_box === null) ? -1 : Number(limit_box),
         limit_pack: (limit_pack === "" || limit_pack === undefined || limit_pack === null) ? -1 : Number(limit_pack),
         barcode:    String(barcode),
+        notice:     String(notice),
       });
     }
 
