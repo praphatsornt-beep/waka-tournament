@@ -264,23 +264,21 @@ with tab_stats:
         for _, row in df_stats.iterrows():
             pname = row.get("player_name") or row.get("real_name") or "—"
             plays = int(row.get("total_plays", 0))
-            acc = int(row.get("accumulation_count", 0))
-            cards = int(row.get("cards_received", 0))
+            tokens = int(row.get("total_tokens", row.get("accumulation_count", 0)))
             boxes_e = int(row.get("boxes_earned", 0))
             boxes_g = int(row.get("boxes_given", 0))
 
             pending_box = boxes_e - boxes_g
             badge = f" 🎁 **Box ค้าง {pending_box}**" if pending_box > 0 else ""
 
-            with st.expander(f"👤 **{pname}** · เล่น {plays} ครั้ง · สะสม {acc}/10{badge}"):
-                c1, c2, c3, c4 = st.columns(4)
+            with st.expander(f"👤 **{pname}** · เล่น {plays} ครั้ง · 🪙 {tokens}/30{badge}"):
+                c1, c2, c3 = st.columns(3)
                 c1.metric("เข้าร่วม", plays)
-                c2.metric("สะสม", f"{acc}/10")
-                c3.metric("รับการ์ด", f"{cards} ครั้ง")
-                c4.metric("Box ได้/แจก", f"{boxes_e}/{boxes_g}")
+                c2.metric("🪙 Token", f"{tokens}/30")
+                c3.metric("Box ได้/แจก", f"{boxes_e}/{boxes_g}")
 
-                pct = min(acc * 10, 100)
-                st.progress(pct / 100, text=f"สะสม {acc}/10")
+                pct = min(tokens / 30 * 100, 100)
+                st.progress(pct / 100, text=f"🪙 {tokens}/30 token")
 
                 if pending_box > 0:
                     if st.button(f"🎁 ให้ Box แล้ว ({pending_box} ค้าง)", key=f"box_{pname}"):
