@@ -70,7 +70,7 @@ def get_gc():
     return _gc_client
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=120)
 def load_orders() -> pd.DataFrame:
     try:
         ws   = get_gc().open_by_key(SHEET_ID).worksheet("orders")

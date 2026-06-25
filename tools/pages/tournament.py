@@ -75,7 +75,7 @@ def _now_th():
 
 
 # ── Data loading ─────────────────────────────────────────────────────────────
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=120)
 def load_registrations() -> pd.DataFrame:
     try:
         ws = get_gc().open_by_key(SHEET_ID).worksheet("tournament_reg")
@@ -92,7 +92,7 @@ def load_registrations() -> pd.DataFrame:
         return pd.DataFrame()
 
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=120)
 def load_player_stats() -> pd.DataFrame:
     try:
         ws = get_gc().open_by_key(SHEET_ID).worksheet("player_stats")
