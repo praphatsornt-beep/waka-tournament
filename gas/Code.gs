@@ -211,9 +211,6 @@ function doPost(e) {
       } else if (slipTxnId && isDuplicateSlip(ss, slipTxnId)) {
         slipStatus = "สลิปซ้ำ";
         slipNote   = "เลขอ้างอิง " + slipTxnId + " เคยใช้แล้ว";
-      } else if (isSlipOK && (verify.to_account || verify.to_name) && !isCorrectAccount(ss, verify.to_account, verify.to_name)) {
-        slipStatus = "บัญชีไม่ตรง";
-        slipNote   = "SlipOK: โอนเข้า " + (verify.to_account || "") + " " + (verify.to_name || "") + " ไม่ตรงกับบัญชีร้าน";
       } else if (Number(verify.amount) < Number(data.total)) {
         slipStatus = "ยอดไม่ตรง";
         var src = isSlipOK ? "SlipOK" : "Claude";
