@@ -1694,7 +1694,9 @@ function isCorrectAccount(ss, toAccount, toName) {
   if (shopAccount && toAccount) {
     var clean1 = String(toAccount).replace(/[-\s]/g, "");
     var clean2 = String(shopAccount).replace(/[-\s]/g, "");
-    acctOk = clean1.indexOf(clean2) >= 0 || clean2.indexOf(clean1) >= 0;
+    var digits1 = clean1.replace(/[^0-9]/g, "");
+    acctOk = clean1.indexOf(clean2) >= 0 || clean2.indexOf(clean1) >= 0
+      || (digits1.length >= 4 && clean2.indexOf(digits1) >= 0);
   }
 
   var nameOk = true;
