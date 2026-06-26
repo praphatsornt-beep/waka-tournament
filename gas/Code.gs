@@ -678,6 +678,19 @@ function handleTournamentRegister(data) {
       _linePush(groupStaff, msg);
     }
 
+    if (payMethod !== "cash") {
+      var finId = _getConfigValue(cfgWs, "finance_line_id");
+      if (finId) {
+        var bankName = data.bank || "โอนเงิน";
+        var finMsg = "🏆 แข่ง WAKA GYM\n📱 โอนเข้า " + bankName + " " + totalAmount + "฿";
+        for (var fi = 0; fi < results.length; fi++) {
+          finMsg += "\n  - " + results[fi].playerName;
+        }
+        finMsg += "\nรหัส: #" + groupId;
+        _linePush(finId, finMsg);
+      }
+    }
+
     if (data.lineUserId && data.lineUserId !== "dev_user") {
       var totalAmount = players.length * entryFee;
       var payLabel = payMethod === "cash" ? "💵 เงินสด" : "📱 โอนเงิน";
