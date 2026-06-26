@@ -190,6 +190,7 @@ function doPost(e) {
     var slipUrl    = "";
     var slipAmount = "";
     var slipTxnId  = "";
+    var slipDate   = "";
 
     if (data.slipBase64) {
       var verify = verifySlipWithSlipOK(data.slipBase64, data.total);
@@ -197,6 +198,7 @@ function doPost(e) {
       if (verify.error) verify = verifySlipWithClaude(data.slipBase64);
       slipAmount = verify.amount || "";
       slipTxnId  = verify.ref || "";
+      slipDate   = verify.date || "";
 
       var isSlipOK = verify.source === "slipok";
 
@@ -296,20 +298,50 @@ function doPost(e) {
       var cfgWs   = ss.getSheetByName(TAB_CONFIG);
       var financeId = _getConfigValue(cfgWs, "finance_line_id");
       var streamlitUrl = "https://waka-tournament-e6wsqmhuhhexratyiub65f.streamlit.app/orders";
-      if (financeId && slipStatus !== "ยืนยัน") {
-        var icon = slipStatus === "ไม่มีสลิป" ? "📩" : "⚠️";
+      if (financeId) {
         var itemsSummary = (data.items || []).map(function(i) {
           var u = i.type === "box" ? "กล่อง" : "ซอง";
           return "  - " + i.name + " (" + u + ") x" + (i.qty || 1);
         }).join("\n");
-        _linePush(financeId, icon + " ออเดอร์ต้องตรวจ #" + orderId
-          + "\nลูกค้า: " + (data.displayName || "") + (data.realName ? " (" + data.realName + ")" : "")
-          + "\nสาขา: " + (data.branch || "")
-          + "\nยอด: " + data.total + " บาท"
-          + "\n\n" + itemsSummary
-          + "\n\nสลิป: " + slipStatus
-          + (slipNote ? "\n" + slipNote : "")
-          + "\n\nจัดการออเดอร์:\n" + streamlitUrl);
+
+        var transferAgo = "";
+        if (slipDate) {
+          try {
+            var now = new Date();
+            var slip = new Date(slipDate);
+            if (!isNaN(slip.getTime())) {
+              var diffMs = now.getTime() - slip.getTime();
+              var diffMin = Math.floor(diffMs / 60000);
+              if (diffMin < 1) transferAgo = "โอนเมื่อสักครู่";
+              else if (diffMin < 60) transferAgo = "โอนเมื่อ " + diffMin + " นาทีที่แล้ว";
+              else if (diffMin < 1440) transferAgo = "โอนเมื่อ " + Math.floor(diffMin / 60) + " ชั่วโมงที่แล้ว";
+              else transferAgo = "⚠️ โอนเมื่อ " + Math.floor(diffMin / 1440) + " วันที่แล้ว!";
+            }
+          } catch(_) {}
+        }
+
+        if (slipStatus === "ยืนยัน") {
+          var finMsg = "✅ ออเดอร์ยืนยันแล้ว #" + orderId
+            + "\nลูกค้า: " + (data.displayName || "") + (data.realName ? " (" + data.realName + ")" : "")
+            + "\nยอด: " + data.total + " บาท"
+            + "\n\n" + itemsSummary;
+          if (slipDate) finMsg += "\n\n📅 วันที่โอน: " + slipDate;
+          if (transferAgo) finMsg += "\n⏱️ " + transferAgo;
+          _linePush(financeId, finMsg);
+        } else {
+          var icon = slipStatus === "ไม่มีสลิป" ? "📩" : "⚠️";
+          var finMsg2 = icon + " ออเดอร์ต้องตรวจ #" + orderId
+            + "\nลูกค้า: " + (data.displayName || "") + (data.realName ? " (" + data.realName + ")" : "")
+            + "\nสาขา: " + (data.branch || "")
+            + "\nยอด: " + data.total + " บาท"
+            + "\n\n" + itemsSummary
+            + "\n\nสลิป: " + slipStatus
+            + (slipNote ? "\n" + slipNote : "");
+          if (slipDate) finMsg2 += "\n\n📅 วันที่โอน: " + slipDate;
+          if (transferAgo) finMsg2 += "\n⏱️ " + transferAgo;
+          finMsg2 += "\n\nจัดการออเดอร์:\n" + streamlitUrl;
+          _linePush(financeId, finMsg2);
+        }
       }
       if (data.lineUserId) notifyCustomer(data.lineUserId, { orderId: orderId, items: data.items, displayName: data.displayName, branch: data.branch, address: data.address, total: data.total, slipStatus: slipStatus });
     } catch(_) {}
