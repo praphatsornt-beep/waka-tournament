@@ -906,8 +906,17 @@ def _load_from_sheet(edited_df, output_url: str, run_count: int) -> str | None:
 
 # ── UI ────────────────────────────────────────────────────────────────────────
 
-st.set_page_config(page_title="WAKA Tournament", page_icon="🎮", layout="wide")
-st.title("🎮 WAKA Tournament — ตรวจสอบการชำระเงิน")
+st.set_page_config(page_title="WAKA SPACE", page_icon="🎮", layout="wide")
+
+st.markdown("""<style>
+    [data-testid="stExpander"] { border: 1px solid #e0e0e0; border-radius: 12px; margin-bottom: 8px; }
+    [data-testid="stMetric"] { background: #f8f9fa; padding: 12px; border-radius: 10px; }
+    [data-testid="stMetricValue"] { font-size: 1.3rem; }
+    .stButton>button { border-radius: 10px; }
+    h1, h2, h3 { font-weight: 700 !important; }
+</style>""", unsafe_allow_html=True)
+
+st.markdown("## 🎮 WAKA SPACE — ตรวจสอบการชำระเงิน")
 
 config = load_config()
 

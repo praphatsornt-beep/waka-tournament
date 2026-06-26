@@ -204,9 +204,12 @@ st.markdown("""<style>
     [data-testid="stMetricValue"] { font-size: 1.3rem; }
     .stButton>button { border-radius: 10px; }
     div[data-testid="stImage"] img { border-radius: 10px; }
+    h1, h2, h3 { font-weight: 700 !important; }
 </style>""", unsafe_allow_html=True)
 
-# ── Top bar: title + search + reload ─────────────────────────────────────────
+# ── Top bar ──────────────────────────────────────────────────────────────────
+st.markdown("## 🛒 ออเดอร์")
+
 t1, t2 = st.columns([3, 1])
 with t1:
     search = st.text_input("🔍 ค้นหา", placeholder="ชื่อ / เบอร์ / เลขออเดอร์", label_visibility="collapsed")

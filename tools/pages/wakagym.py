@@ -140,11 +140,14 @@ st.markdown("""<style>
     .stButton>button { border-radius: 10px; }
     div[data-testid="stImage"] img { border-radius: 10px; }
     .stProgress>div>div { border-radius: 6px; }
+    h1, h2, h3 { font-weight: 700 !important; }
 </style>""", unsafe_allow_html=True)
+
+st.markdown("## 🏆 WAKA GYM")
 
 t1, t2 = st.columns([3, 1])
 with t1:
-    st.markdown("### 🏆 WAKA GYM")
+    st.empty()
 with t2:
     if st.button("🔄 โหลดใหม่", use_container_width=True):
         st.cache_data.clear()
