@@ -13,9 +13,9 @@ const TAB_CONFIG  = "_config";
 const TAB_STOCK   = "stock";
 const TAB_STOCK_BRANCH = "stock_branch";
 const TAB_SHIPMENTS    = "shipments";
-const TAB_TOURNAMENT_REG = "tournament_reg";
+const TAB_WAKAGYM_REG = "wakagym_reg";
 const TAB_PLAYER_STATS   = "player_stats";
-const TAB_TOURNAMENT_EVENTS = "tournament_events";
+const TAB_WAKAGYM_EVENTS = "wakagym_events";
 
 const BRANCHES = ["ต้นสักคอร์เนอร์", "เมืองทองธานี", "ศรีนครินทร์"];
 
@@ -145,8 +145,8 @@ function doPost(e) {
       return handleConfirmSlip(data);
     }
 
-    if (data._action === "tournamentRegister") {
-      return handleTournamentRegister(data);
+    if (data._action === "wakagymRegister") {
+      return handleWakagymRegister(data);
     }
 
     if (Array.isArray(data.events)) {
@@ -532,9 +532,9 @@ function saveSlipToDrive(base64, orderId) {
   }
 }
 
-// ── Tournament ────────────────────────────────────────────────────────────────
+// ── WAKA GYM ────────────────────────────────────────────────────────────────
 
-function _genTournamentRegId() {
+function _genWakagymRegId() {
   var now = new Date();
   var pad = function(n) { return String(n).padStart(2, "0"); };
   var yy = String(now.getFullYear()).slice(-2);
@@ -555,7 +555,7 @@ function _ensureTab(ss, tabName, headers) {
 }
 
 function _getActiveEvent(ss, branch) {
-  var evWs = ss.getSheetByName(TAB_TOURNAMENT_EVENTS);
+  var evWs = ss.getSheetByName(TAB_WAKAGYM_EVENTS);
   if (!evWs) return null;
   var today = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd");
   var rows = evWs.getDataRange().getValues();
@@ -581,12 +581,12 @@ function _getActiveEvent(ss, branch) {
   return null;
 }
 
-function handleTournamentRegister(data) {
+function handleWakagymRegister(data) {
   var lock = LockService.getScriptLock();
   lock.waitLock(15000);
   try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
-    var groupId = _genTournamentRegId();
+    var groupId = _genWakagymRegId();
     var now = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd'T'HH:mm:ss'+07:00'");
     var today = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd");
     var payMethod = data.paymentMethod || "transfer";
@@ -602,7 +602,7 @@ function handleTournamentRegister(data) {
     }
     var slipStatus = payMethod === "cash" ? "cash" : "pending";
 
-    var regWs = _ensureTab(ss, TAB_TOURNAMENT_REG, [
+    var regWs = _ensureTab(ss, TAB_WAKAGYM_REG, [
       "reg_id", "timestamp", "event_date", "group_id", "event_id", "line_user_id", "display_name",
       "real_name", "player_name", "phone", "slip_url", "slip_status", "payment_method",
       "bank", "placement", "wins_3match", "tokens_earned", "promo_packs", "rewards_given", "note"
@@ -624,7 +624,7 @@ function handleTournamentRegister(data) {
     var results = [];
     for (var p = 0; p < players.length; p++) {
       var pl = players[p];
-      var regId = p === 0 ? groupId : _genTournamentRegId();
+      var regId = p === 0 ? groupId : _genWakagymRegId();
       var pName = String(pl.playerName || pl.realName || "").trim();
       var rName = String(pl.realName || "").trim();
 
@@ -1199,11 +1199,11 @@ function handleApi(params) {
     return _cors(ContentService.createTextOutput(JSON.stringify({ withdrawals: wList.slice(0, 50) })));
   }
 
-  // ── Tournament API ──
-  if (action === "tournament_status") {
+  // ── WAKA GYM API ──
+  if (action === "wakagym_status") {
     var uid = params.line_user_id || "";
     var today = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd");
-    var regWs = ss.getSheetByName(TAB_TOURNAMENT_REG);
+    var regWs = ss.getSheetByName(TAB_WAKAGYM_REG);
     var statsWs2 = ss.getSheetByName(TAB_PLAYER_STATS);
 
     var event = _getActiveEvent(ss, null);
@@ -1259,9 +1259,9 @@ function handleApi(params) {
     })));
   }
 
-  if (action === "tournament_players") {
+  if (action === "wakagym_players") {
     var date = params.date || Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd");
-    var tRegWs = ss.getSheetByName(TAB_TOURNAMENT_REG);
+    var tRegWs = ss.getSheetByName(TAB_WAKAGYM_REG);
     if (!tRegWs) return _cors(ContentService.createTextOutput(JSON.stringify({ players: [] })));
     var tRows = tRegWs.getDataRange().getValues();
     var tHdr = tRows[0];
@@ -1287,7 +1287,7 @@ function handleApi(params) {
     return _cors(ContentService.createTextOutput(JSON.stringify({ players: players })));
   }
 
-  if (action === "tournament_player_stats") {
+  if (action === "wakagym_player_stats") {
     var psWs = ss.getSheetByName(TAB_PLAYER_STATS);
     if (!psWs) return _cors(ContentService.createTextOutput(JSON.stringify({ stats: [] })));
     var psRows = psWs.getDataRange().getValues();
@@ -1311,15 +1311,15 @@ function handleApi(params) {
     return _cors(ContentService.createTextOutput(JSON.stringify({ stats: stats })));
   }
 
-  if (action === "tournament_update_reg") {
+  if (action === "wakagym_update_reg") {
     var regId = params.reg_id || "";
     var field = params.field || "";
     var value = params.value || "";
     if (!regId || !field) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "missing params" })));
     var allowed = ["slip_status", "cards_given", "note"];
     if (allowed.indexOf(field) < 0) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "invalid field" })));
-    var tuWs = ss.getSheetByName(TAB_TOURNAMENT_REG);
-    if (!tuWs) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "no tournament_reg tab" })));
+    var tuWs = ss.getSheetByName(TAB_WAKAGYM_REG);
+    if (!tuWs) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "no wakagym_reg tab" })));
     var tuRows = tuWs.getDataRange().getValues();
     var tuHdr = tuRows[0];
     var tuCol = function(n) { return tuHdr.indexOf(n); };
@@ -1333,7 +1333,7 @@ function handleApi(params) {
     return _cors(ContentService.createTextOutput(JSON.stringify({ error: "reg not found" })));
   }
 
-  if (action === "tournament_give_box") {
+  if (action === "wakagym_give_box") {
     var boxPlayer = params.player_name || "";
     if (!boxPlayer) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "missing player_name" })));
     var bWs = ss.getSheetByName(TAB_PLAYER_STATS);
@@ -1380,9 +1380,9 @@ function handleApi(params) {
     return _cors(ContentService.createTextOutput(JSON.stringify({ error: "invalid" })));
   }
 
-  if (action === "tournament_summary") {
+  if (action === "wakagym_summary") {
     var sumDate = params.date || Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd");
-    var sumWs = ss.getSheetByName(TAB_TOURNAMENT_REG);
+    var sumWs = ss.getSheetByName(TAB_WAKAGYM_REG);
     if (!sumWs) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "no data" })));
     var sumRows = sumWs.getDataRange().getValues();
     var sumHdr = sumRows[0];
@@ -1450,13 +1450,13 @@ function handleApi(params) {
     })));
   }
 
-  if (action === "tournament_create_event") {
+  if (action === "wakagym_create_event") {
     var evBranch = params.branch || "";
     var evTier = params.tier || "L";
     if (!evBranch) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "missing branch" })));
     if (!TIER_CONFIG[evTier]) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "invalid tier" })));
     var evSs = ss;
-    var evWs = _ensureTab(evSs, TAB_TOURNAMENT_EVENTS, [
+    var evWs = _ensureTab(evSs, TAB_WAKAGYM_EVENTS, [
       "event_id", "date", "branch", "tier", "entry_fee", "status", "created_by"
     ]);
     var evNow = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd");
@@ -1476,19 +1476,19 @@ function handleApi(params) {
     })));
   }
 
-  if (action === "tournament_submit_results") {
+  if (action === "wakagym_submit_results") {
     var srEventId = params.event_id || "";
     var srResults = [];
     try { srResults = JSON.parse(params.results || "[]"); } catch(_) {}
     if (srResults.length === 0) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "no results" })));
     var srSs = ss;
-    var srRegWs = srSs.getSheetByName(TAB_TOURNAMENT_REG);
+    var srRegWs = srSs.getSheetByName(TAB_WAKAGYM_REG);
     var srStatsWs = srSs.getSheetByName(TAB_PLAYER_STATS);
     if (!srRegWs || !srStatsWs) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "no data" })));
 
     var srEvent = null;
     if (srEventId) {
-      var evWs2 = srSs.getSheetByName(TAB_TOURNAMENT_EVENTS);
+      var evWs2 = srSs.getSheetByName(TAB_WAKAGYM_EVENTS);
       if (evWs2) {
         var evRows2 = evWs2.getDataRange().getValues();
         var evHdr2 = evRows2[0];
@@ -1565,10 +1565,10 @@ function handleApi(params) {
     return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true, processed: processed })));
   }
 
-  if (action === "tournament_give_rewards") {
+  if (action === "wakagym_give_rewards") {
     var grRegId = String(params.reg_id || "").trim();
     if (!grRegId) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "missing reg_id" })));
-    var grWs = ss.getSheetByName(TAB_TOURNAMENT_REG);
+    var grWs = ss.getSheetByName(TAB_WAKAGYM_REG);
     if (!grWs) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "no data" })));
     var grRows = grWs.getDataRange().getValues();
     var grHdr = grRows[0];
@@ -1596,10 +1596,10 @@ function handleApi(params) {
     return _cors(ContentService.createTextOutput(JSON.stringify({ error: "not found" })));
   }
 
-  if (action === "tournament_lookup") {
+  if (action === "wakagym_lookup") {
     var lookupId = String(params.group_id || params.reg_id || "").trim();
     if (!lookupId) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "missing id" })));
-    var luWs = ss.getSheetByName(TAB_TOURNAMENT_REG);
+    var luWs = ss.getSheetByName(TAB_WAKAGYM_REG);
     if (!luWs) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "no data" })));
     var luRows = luWs.getDataRange().getValues();
     var luHdr = luRows[0];
@@ -1655,10 +1655,10 @@ function handleApi(params) {
     return _cors(ContentService.createTextOutput(JSON.stringify({ players: found })));
   }
 
-  if (action === "tournament_give_cards") {
+  if (action === "wakagym_give_cards") {
     var gcRegId = String(params.reg_id || "").trim();
     if (!gcRegId) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "missing reg_id" })));
-    var gcWs = ss.getSheetByName(TAB_TOURNAMENT_REG);
+    var gcWs = ss.getSheetByName(TAB_WAKAGYM_REG);
     if (!gcWs) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "no data" })));
     var gcRows = gcWs.getDataRange().getValues();
     var gcHdr = gcRows[0];

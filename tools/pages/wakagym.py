@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tournament Management Dashboard"""
+"""WAKA GYM Management Dashboard"""
 
 import json
 from pathlib import Path
@@ -78,7 +78,7 @@ def _now_th():
 @st.cache_data(ttl=120)
 def load_registrations() -> pd.DataFrame:
     try:
-        ws = get_gc().open_by_key(SHEET_ID).worksheet("tournament_reg")
+        ws = get_gc().open_by_key(SHEET_ID).worksheet("wakagym_reg")
         rows = ws.get_all_values()
         if len(rows) < 2:
             return pd.DataFrame()
@@ -88,7 +88,7 @@ def load_registrations() -> pd.DataFrame:
     except gspread.exceptions.WorksheetNotFound:
         return pd.DataFrame()
     except Exception as e:
-        st.error(f"โหลด tournament_reg ไม่ได้: {e}")
+        st.error(f"โหลด wakagym_reg ไม่ได้: {e}")
         return pd.DataFrame()
 
 
@@ -116,7 +116,7 @@ def update_reg_field(reg_id: str, field: str, value: str):
     import requests
     requests.get(
         GAS_URL,
-        params={"action": "api", "do": "tournament_update_reg", "reg_id": reg_id, "field": field, "value": value},
+        params={"action": "api", "do": "wakagym_update_reg", "reg_id": reg_id, "field": field, "value": value},
         timeout=15,
     )
 
@@ -125,17 +125,17 @@ def give_box(player_name: str):
     import requests
     requests.get(
         GAS_URL,
-        params={"action": "api", "do": "tournament_give_box", "player_name": player_name},
+        params={"action": "api", "do": "wakagym_give_box", "player_name": player_name},
         timeout=15,
     )
 
 
 # ── Page config ──────────────────────────────────────────────────────────────
-st.set_page_config(page_title="Tournament", page_icon="🏆", layout="wide")
+st.set_page_config(page_title="WAKA GYM", page_icon="🏆", layout="wide")
 
 t1, t2 = st.columns([3, 1])
 with t1:
-    st.markdown("### 🏆 Tournament")
+    st.markdown("### 🏆 WAKA GYM")
 with t2:
     if st.button("🔄 โหลดใหม่", use_container_width=True):
         st.cache_data.clear()
