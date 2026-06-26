@@ -133,6 +133,15 @@ def give_box(player_name: str):
 # ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(page_title="WAKA GYM", page_icon="🏆", layout="wide")
 
+st.markdown("""<style>
+    [data-testid="stExpander"] { border: 1px solid #e0e0e0; border-radius: 12px; margin-bottom: 8px; }
+    [data-testid="stMetric"] { background: #f8f9fa; padding: 12px; border-radius: 10px; }
+    [data-testid="stMetricValue"] { font-size: 1.3rem; }
+    .stButton>button { border-radius: 10px; }
+    div[data-testid="stImage"] img { border-radius: 10px; }
+    .stProgress>div>div { border-radius: 6px; }
+</style>""", unsafe_allow_html=True)
+
 t1, t2 = st.columns([3, 1])
 with t1:
     st.markdown("### 🏆 WAKA GYM")
