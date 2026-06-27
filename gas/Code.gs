@@ -226,8 +226,8 @@ function doPost(e) {
         var shopNameTh = _getConfigValue(cfgWs2, "bank_account_name") || "";
         var shopNameEn = _getConfigValue(cfgWs2, "bank_account_name_en") || "";
         var shopNames = [];
-        shopNameTh.split(",").forEach(function(n) { n = n.trim(); if (n) shopNames.push(n.toLowerCase()); });
-        shopNameEn.split(",").forEach(function(n) { n = n.trim(); if (n) shopNames.push(n.toLowerCase()); });
+        shopNameTh.split("|").forEach(function(n) { n = n.trim(); if (n) shopNames.push(n.toLowerCase()); });
+        shopNameEn.split("|").forEach(function(n) { n = n.trim(); if (n) shopNames.push(n.toLowerCase()); });
 
         var amtOk = Number(verify.amount) >= Number(data.total);
         var acctOk = !shopAcct || !verify.to_account || isPartialMatch(verify.to_account, shopAcct);
@@ -1759,8 +1759,8 @@ function isCorrectAccount(ss, toAccount, toName) {
     var shopNameTh = _getConfigValue(cfgWs, "bank_account_name") || "";
     var shopNameEn = _getConfigValue(cfgWs, "bank_account_name_en") || "";
     var shopNames = [];
-    shopNameTh.split(",").forEach(function(n) { n = n.trim(); if (n) shopNames.push(n.toLowerCase()); });
-    shopNameEn.split(",").forEach(function(n) { n = n.trim(); if (n) shopNames.push(n.toLowerCase()); });
+    shopNameTh.split("|").forEach(function(n) { n = n.trim(); if (n) shopNames.push(n.toLowerCase()); });
+    shopNameEn.split("|").forEach(function(n) { n = n.trim(); if (n) shopNames.push(n.toLowerCase()); });
     var slipName = String(toName).toLowerCase().replace(/[.\s]+/g, " ").trim();
     if (shopNames.length > 0) {
       nameOk = false;
