@@ -242,13 +242,9 @@ function doPost(e) {
         details.push("บัญชี: " + (acctOk ? "✅ ตรง" : "❌ อ่านได้ " + (verify.to_account || "-") + " ≠ " + shopAcct));
         details.push("ชื่อ: " + (nameOk ? "✅ ตรง" : nameClose ? "⚠️ ใกล้เคียง " + (verify.to_name || "-") : "❌ อ่านได้ " + (verify.to_name || "-")));
 
-        if (amtOk && acctOk && (nameOk || nameClose)) {
+        if (amtOk && acctOk) {
           slipStatus = "ยืนยัน";
-          if (nameClose) {
-            slipNote = "Claude: ยอด+บัญชีตรง ชื่อใกล้เคียง (" + (verify.to_name || "") + ") — " + details.join(" | ") + fallbackInfo;
-          } else {
-            slipNote = "Claude: ตรงทุกรายการ — " + details.join(" | ") + fallbackInfo;
-          }
+          slipNote = "Claude: ยอด+บัญชีตรง — " + details.join(" | ") + fallbackInfo;
         } else {
           slipStatus = "รอตรวจเพิ่ม";
           slipNote   = "Claude: " + details.join(" | ") + " — admin กรุณาเช็คแอปธนาคาร" + fallbackInfo;
