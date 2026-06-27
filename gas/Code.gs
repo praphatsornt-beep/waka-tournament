@@ -244,7 +244,8 @@ function doPost(e) {
 
         if (amtOk && acctOk) {
           slipStatus = "ยืนยัน";
-          slipNote = "Claude: ยอด+บัญชีตรง — " + details.join(" | ") + fallbackInfo;
+          var nameWarn = (!nameOk && verify.to_name) ? " ⚠️ ชื่อบัญชีอ่านได้ \"" + verify.to_name + "\" กรุณาตรวจชื่อบัญชีอีกครั้ง" : "";
+          slipNote = "Claude: ยอด+บัญชีตรง — " + details.join(" | ") + nameWarn + fallbackInfo;
         } else {
           slipStatus = "รอตรวจเพิ่ม";
           slipNote   = "Claude: " + details.join(" | ") + " — admin กรุณาเช็คแอปธนาคาร" + fallbackInfo;
