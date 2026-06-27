@@ -242,10 +242,16 @@ function doPost(e) {
         details.push("บัญชี: " + (acctOk ? "✅ ตรง" : "❌ อ่านได้ " + (verify.to_account || "-") + " ≠ " + shopAcct));
         details.push("ชื่อ: " + (nameOk ? "✅ ตรง" : nameClose ? "⚠️ ใกล้เคียง " + (verify.to_name || "-") : "❌ อ่านได้ " + (verify.to_name || "-")));
 
-        if (amtOk && acctOk) {
+        if (amtOk && acctOk && (nameOk || nameClose)) {
           slipStatus = "ยืนยัน";
-          var nameWarn = (!nameOk && verify.to_name) ? " ⚠️ ชื่อบัญชีอ่านได้ \"" + verify.to_name + "\" กรุณาตรวจชื่อบัญชีอีกครั้ง" : "";
-          slipNote = "Claude: ยอด+บัญชีตรง — " + details.join(" | ") + nameWarn + fallbackInfo;
+          if (nameClose && !nameOk) {
+            slipNote = "Claude: ยอด+บัญชีตรง ชื่อใกล้เคียง — " + details.join(" | ") + " ⚠️ ชื่อบัญชีอ่านได้ \"" + (verify.to_name || "") + "\" กรุณาตรวจชื่อบัญชีอีกครั้ง" + fallbackInfo;
+          } else {
+            slipNote = "Claude: ตรงทุกรายการ — " + details.join(" | ") + fallbackInfo;
+          }
+        } else if (amtOk && acctOk && !nameOk) {
+          slipStatus = "รอตรวจเพิ่ม";
+          slipNote = "Claude: ยอด+บัญชีตรง แต่ชื่อไม่ตรง (" + (verify.to_name || "-") + ") — " + details.join(" | ") + " — admin กรุณาตรวจชื่อบัญชีอีกครั้ง" + fallbackInfo;
         } else {
           slipStatus = "รอตรวจเพิ่ม";
           slipNote   = "Claude: " + details.join(" | ") + " — admin กรุณาเช็คแอปธนาคาร" + fallbackInfo;
