@@ -228,16 +228,27 @@ function doPost(e) {
 
         var amtOk = Number(verify.amount) >= Number(data.total);
         var acctOk = !shopAcct || !verify.to_account || isPartialMatch(verify.to_account, shopAcct);
-        var nameOk = !verify.to_name || nameMatch(String(verify.to_name).toLowerCase(), shopNameTh.toLowerCase()) || nameMatch(String(verify.to_name).toLowerCase(), shopNameEn.toLowerCase());
+        var slipNameStr = String(verify.to_name || "").toLowerCase();
+        var nameOk = !verify.to_name || nameMatch(slipNameStr, shopNameTh.toLowerCase()) || nameMatch(slipNameStr, shopNameEn.toLowerCase());
+        var nameClose = false;
+        if (!nameOk && verify.to_name) {
+          var sim = nameSimilarity(slipNameStr, shopNameTh.toLowerCase());
+          var simEn = nameSimilarity(slipNameStr, shopNameEn.toLowerCase());
+          if (Math.max(sim, simEn) >= 0.5) nameClose = true;
+        }
 
         var details = [];
         details.push("ยอด: " + (amtOk ? "✅ ตรง" : "❌ สลิป " + verify.amount + " ≠ ออเดอร์ " + data.total));
         details.push("บัญชี: " + (acctOk ? "✅ ตรง" : "❌ อ่านได้ " + (verify.to_account || "-") + " ≠ " + shopAcct));
-        details.push("ชื่อ: " + (nameOk ? "✅ ตรง" : "❌ อ่านได้ " + (verify.to_name || "-")));
+        details.push("ชื่อ: " + (nameOk ? "✅ ตรง" : nameClose ? "⚠️ ใกล้เคียง " + (verify.to_name || "-") : "❌ อ่านได้ " + (verify.to_name || "-")));
 
-        if (amtOk && acctOk && nameOk) {
+        if (amtOk && acctOk && (nameOk || nameClose)) {
           slipStatus = "ยืนยัน";
-          slipNote   = "Claude: ตรงทุกรายการ — " + details.join(" | ") + fallbackInfo;
+          if (nameClose) {
+            slipNote = "Claude: ยอด+บัญชีตรง ชื่อใกล้เคียง (" + (verify.to_name || "") + ") — " + details.join(" | ") + fallbackInfo;
+          } else {
+            slipNote = "Claude: ตรงทุกรายการ — " + details.join(" | ") + fallbackInfo;
+          }
         } else {
           slipStatus = "รอตรวจเพิ่ม";
           slipNote   = "Claude: " + details.join(" | ") + " — admin กรุณาเช็คแอปธนาคาร" + fallbackInfo;
@@ -1781,6 +1792,21 @@ function nameMatch(slipName, shopName) {
   var shorter = slipName.length < shopName.length ? slipName : shopName;
   var longer  = slipName.length < shopName.length ? shopName : slipName;
   return shorter.length >= 8 && longer.indexOf(shorter) === 0;
+}
+
+function nameSimilarity(a, b) {
+  if (!a || !b) return 0;
+  a = a.replace(/[.\s]+/g, "").trim();
+  b = b.replace(/[.\s]+/g, "").trim();
+  if (a === b) return 1;
+  var longer = a.length > b.length ? a : b;
+  var shorter = a.length > b.length ? b : a;
+  if (longer.length === 0) return 1;
+  var matchCount = 0;
+  for (var i = 0; i < shorter.length; i++) {
+    if (longer.indexOf(shorter[i]) >= 0) matchCount++;
+  }
+  return matchCount / longer.length;
 }
 
 function checkSlipOKQuota() {
