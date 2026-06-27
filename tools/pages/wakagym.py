@@ -100,7 +100,7 @@ def load_player_stats() -> pd.DataFrame:
         if len(rows) < 2:
             return pd.DataFrame()
         df = pd.DataFrame(rows[1:], columns=rows[0])
-        for col in ["total_plays", "accumulation_count", "cards_received", "boxes_earned", "boxes_given"]:
+        for col in ["total_plays", "total_tokens", "boxes_earned", "boxes_given"]:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
         df["row_num"] = range(2, len(df) + 2)
@@ -173,21 +173,25 @@ with tab_today:
             st.info(f"ไม่มีผู้ลงทะเบียนวันที่ {today_str}")
         else:
             slip_col = today_df["slip_status"] if "slip_status" in today_df.columns else pd.Series("", index=today_df.index)
-            choice_col = today_df["choice"] if "choice" in today_df.columns else pd.Series("", index=today_df.index)
             pay_col = today_df["payment_method"] if "payment_method" in today_df.columns else pd.Series("", index=today_df.index)
 
             verified = today_df[slip_col.isin(["verified", "cash"])]
             pending = today_df[slip_col == "pending"]
-            cards_count = today_df[choice_col == "cards"]
-            accum_count = today_df[choice_col == "accumulate"]
             cash_count = today_df[pay_col == "cash"]
+
+            total_tokens = 0
+            total_promo = 0
+            if "tokens_earned" in today_df.columns:
+                total_tokens = pd.to_numeric(today_df["tokens_earned"], errors="coerce").fillna(0).sum()
+            if "promo_packs" in today_df.columns:
+                total_promo = pd.to_numeric(today_df["promo_packs"], errors="coerce").fillna(0).sum()
 
             kpi = (
                 f"📋 **{len(today_df)}** คน &nbsp;|&nbsp; "
                 f"✅ **{len(verified)}** ยืนยัน &nbsp;|&nbsp; "
                 f"🟡 **{len(pending)}** รอตรวจ &nbsp;|&nbsp; "
-                f"🎴 **{len(cards_count)}** รับการ์ด &nbsp;|&nbsp; "
-                f"📦 **{len(accum_count)}** สะสม &nbsp;|&nbsp; "
+                f"🪙 **{int(total_tokens)}** token &nbsp;|&nbsp; "
+                f"🎁 **{int(total_promo)}** promo &nbsp;|&nbsp; "
                 f"💵 **{len(cash_count)}** เงินสด"
             )
             st.markdown(kpi)
@@ -208,16 +212,18 @@ with tab_today:
                 pname = row.get("player_name") or row.get("real_name") or "—"
                 rname = row.get("real_name", "")
                 slip_st = row.get("slip_status", "pending")
-                choice = row.get("choice", "cards")
-                cards_given = row.get("cards_given", "")
                 pay = row.get("payment_method", "transfer")
+                tokens = row.get("tokens_earned", "")
+                promo = row.get("promo_packs", "")
+                rewards_given = row.get("rewards_given", "")
 
                 s_icon = "✅" if slip_st in ("verified", "cash") else ("❌" if slip_st == "rejected" else "🟡")
-                c_icon = "📦 สะสม" if choice == "accumulate" else "🎴 การ์ด"
                 pay_icon = "💵" if pay == "cash" else "📱"
-                given_icon = " ✅แจก" if str(cards_given).lower() == "true" else ""
+                token_info = f"🪙{tokens}" if tokens else ""
+                promo_info = f"🎁{promo}" if promo else ""
+                given_icon = " ✅แจก" if str(rewards_given).lower() == "true" else ""
 
-                label = f"{s_icon} **#{rid}** · {pname} · {c_icon} · {pay_icon}{given_icon}"
+                label = f"{s_icon} **#{rid}** · {pname} · {pay_icon} {token_info} {promo_info}{given_icon}"
 
                 with st.expander(label, expanded=(slip_st == "pending")):
                     col1, col2 = st.columns([1, 2])
@@ -233,7 +239,12 @@ with tab_today:
                         name_display = f"**{pname}**"
                         if rname and rname != pname:
                             name_display += f" ({rname})"
-                        st.markdown(f"🏷️ {name_display}\n\n📱 {row.get('phone', '—')} · {c_icon} · {pay_icon}")
+                        reward_line = ""
+                        if tokens:
+                            reward_line += f" · 🪙 {tokens} token"
+                        if promo:
+                            reward_line += f" · 🎁 {promo} promo"
+                        st.markdown(f"🏷️ {name_display}\n\n📱 {row.get('phone', '—')} · {pay_icon}{reward_line}")
                         if row.get("note"):
                             st.caption(f"📝 {row.get('note')}")
 
@@ -251,9 +262,9 @@ with tab_today:
                                     st.cache_data.clear()
                                     st.rerun()
                         with c3:
-                            if choice == "cards" and str(cards_given).lower() != "true":
-                                if st.button("🎴 แจกแล้ว", key=f"give_{rid}"):
-                                    update_reg_field(rid, "cards_given", "TRUE")
+                            if tokens and str(rewards_given).lower() != "true":
+                                if st.button("🎁 แจกแล้ว", key=f"give_{rid}"):
+                                    update_reg_field(rid, "rewards_given", "TRUE")
                                     st.cache_data.clear()
                                     st.rerun()
 
@@ -276,7 +287,7 @@ with tab_stats:
         for _, row in df_stats.iterrows():
             pname = row.get("player_name") or row.get("real_name") or "—"
             plays = int(row.get("total_plays", 0))
-            tokens = int(row.get("total_tokens", row.get("accumulation_count", 0)))
+            tokens = int(row.get("total_tokens", 0))
             boxes_e = int(row.get("boxes_earned", 0))
             boxes_g = int(row.get("boxes_given", 0))
 

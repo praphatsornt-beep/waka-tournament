@@ -225,16 +225,26 @@ function doPost(e) {
         var shopAcct = _getConfigValue(cfgWs2, "bank_account") || "";
         var shopNameTh = _getConfigValue(cfgWs2, "bank_account_name") || "";
         var shopNameEn = _getConfigValue(cfgWs2, "bank_account_name_en") || "";
+        var shopNames = [];
+        shopNameTh.split(",").forEach(function(n) { n = n.trim(); if (n) shopNames.push(n.toLowerCase()); });
+        shopNameEn.split(",").forEach(function(n) { n = n.trim(); if (n) shopNames.push(n.toLowerCase()); });
 
         var amtOk = Number(verify.amount) >= Number(data.total);
         var acctOk = !shopAcct || !verify.to_account || isPartialMatch(verify.to_account, shopAcct);
         var slipNameStr = String(verify.to_name || "").toLowerCase();
-        var nameOk = !verify.to_name || nameMatch(slipNameStr, shopNameTh.toLowerCase()) || nameMatch(slipNameStr, shopNameEn.toLowerCase());
+        var nameOk = !verify.to_name;
         var nameClose = false;
+        if (!nameOk) {
+          for (var ni = 0; ni < shopNames.length; ni++) {
+            if (nameMatch(slipNameStr, shopNames[ni])) { nameOk = true; break; }
+          }
+        }
         if (!nameOk && verify.to_name) {
-          var sim = nameSimilarity(slipNameStr, shopNameTh.toLowerCase());
-          var simEn = nameSimilarity(slipNameStr, shopNameEn.toLowerCase());
-          if (Math.max(sim, simEn) >= 0.5) nameClose = true;
+          var bestSim = 0;
+          for (var si = 0; si < shopNames.length; si++) {
+            bestSim = Math.max(bestSim, nameSimilarity(slipNameStr, shopNames[si]));
+          }
+          if (bestSim >= 0.7) nameClose = true;
         }
 
         var details = [];
@@ -245,16 +255,19 @@ function doPost(e) {
         if (amtOk && acctOk && (nameOk || nameClose)) {
           slipStatus = "ยืนยัน";
           if (nameClose && !nameOk) {
-            slipNote = "Claude: ยอด+บัญชีตรง ชื่อใกล้เคียง — " + details.join(" | ") + " ⚠️ ชื่อบัญชีอ่านได้ \"" + (verify.to_name || "") + "\" กรุณาตรวจชื่อบัญชีอีกครั้ง" + fallbackInfo;
+            slipNote = "✅ ยอดตรง ✅ บัญชีตรง\n⚠️ ชื่อใกล้เคียง (" + (verify.to_name || "") + ")\nระบบยืนยันอัตโนมัติ กรุณาตรวจชื่อบัญชีอีกครั้ง" + fallbackInfo;
           } else {
-            slipNote = "Claude: ตรงทุกรายการ — " + details.join(" | ") + fallbackInfo;
+            slipNote = "✅ ยอดตรง ✅ บัญชีตรง ✅ ชื่อตรง" + fallbackInfo;
           }
         } else if (amtOk && acctOk && !nameOk) {
           slipStatus = "รอตรวจเพิ่ม";
-          slipNote = "Claude: ยอด+บัญชีตรง แต่ชื่อไม่ตรง (" + (verify.to_name || "-") + ") — " + details.join(" | ") + " — admin กรุณาตรวจชื่อบัญชีอีกครั้ง" + fallbackInfo;
+          slipNote = "✅ ยอดตรง ✅ บัญชีตรง\n⚠️ ชื่อไม่ตรง (" + (verify.to_name || "-") + ")\nadmin กรุณาตรวจชื่อบัญชีอีกครั้ง" + fallbackInfo;
         } else {
           slipStatus = "รอตรวจเพิ่ม";
-          slipNote   = "Claude: " + details.join(" | ") + " — admin กรุณาเช็คแอปธนาคาร" + fallbackInfo;
+          slipNote   = (amtOk ? "✅ ยอดตรง" : "❌ ยอดไม่ตรง (สลิป " + verify.amount + " ≠ ออเดอร์ " + data.total + ")")
+            + "\n" + (acctOk ? "✅ บัญชีตรง" : "❌ บัญชีไม่ตรง (" + (verify.to_account || "-") + ")")
+            + "\n" + (nameOk ? "✅ ชื่อตรง" : "❌ ชื่อไม่ตรง (" + (verify.to_name || "-") + ")")
+            + "\nadmin กรุณาเช็คแอปธนาคาร" + fallbackInfo;
         }
       }
     }
@@ -343,17 +356,26 @@ function doPost(e) {
           if (transferAgo) finMsg += "\n⏱️ " + transferAgo;
           _linePush(financeId, finMsg);
         } else {
+          var problemLabel = {
+            "ยอดไม่ตรง": "💰 ยอดเงินไม่ตรง",
+            "บัญชีไม่ตรง": "🏦 บัญชีไม่ตรง",
+            "สลิปซ้ำ": "🔁 สลิปซ้ำ (เลขอ้างอิงเคยใช้แล้ว)",
+            "สงสัยปลอม": "🚨 สงสัยสลิปปลอม",
+            "รอตรวจ": "🔍 อ่านสลิปไม่ได้",
+            "รอตรวจเพิ่ม": "🔍 ต้องตรวจเพิ่ม",
+            "ไม่มีสลิป": "📩 ไม่ได้แนบสลิป"
+          };
           var icon = slipStatus === "ไม่มีสลิป" ? "📩" : "⚠️";
-          var finMsg2 = icon + " ออเดอร์ต้องตรวจ #" + orderId
+          var finMsg2 = icon + " ออเดอร์มีปัญหา #" + orderId
             + "\nลูกค้า: " + (data.displayName || "") + (data.realName ? " (" + data.realName + ")" : "")
             + "\nสาขา: " + (data.branch || "")
             + "\nยอด: " + data.total + " บาท"
             + "\n\n" + itemsSummary
-            + "\n\nสลิป: " + slipStatus
-            + (slipNote ? "\n" + slipNote : "");
+            + "\n\n❌ ปัญหา: " + (problemLabel[slipStatus] || slipStatus);
+          if (slipNote) finMsg2 += "\n📋 " + slipNote;
           if (slipDate) finMsg2 += "\n\n📅 วันที่โอน: " + slipDate;
           if (transferAgo) finMsg2 += "\n⏱️ " + transferAgo;
-          finMsg2 += "\n\nจัดการออเดอร์:\n" + streamlitUrl;
+          finMsg2 += "\n\nตรวจสอบ:\n" + streamlitUrl;
           _linePush(financeId, finMsg2);
         }
       }
@@ -1292,8 +1314,9 @@ function handleApi(params) {
         slip_url: String(tRows[ti][tCol("slip_url")] || ""),
         slip_status: String(tRows[ti][tCol("slip_status")] || ""),
         payment_method: String(tRows[ti][tCol("payment_method")] || ""),
-        choice: String(tRows[ti][tCol("choice")] || ""),
-        cards_given: String(tRows[ti][tCol("cards_given")] || ""),
+        tokens_earned: String(tRows[ti][tCol("tokens_earned")] || ""),
+        promo_packs: String(tRows[ti][tCol("promo_packs")] || ""),
+        rewards_given: String(tRows[ti][tCol("rewards_given")] || ""),
         phone: String(tRows[ti][tCol("phone")] || ""),
         timestamp: String(tRows[ti][tCol("timestamp")] || ""),
       });
@@ -1315,8 +1338,7 @@ function handleApi(params) {
         display_name: String(psRows[pi][psCol("display_name")] || ""),
         real_name: String(psRows[pi][psCol("real_name")] || ""),
         total_plays: Number(psRows[pi][psCol("total_plays")]) || 0,
-        accumulation_count: Number(psRows[pi][psCol("accumulation_count")]) || 0,
-        cards_received: Number(psRows[pi][psCol("cards_received")]) || 0,
+        total_tokens: Number(psRows[pi][psCol("total_tokens")]) || 0,
         boxes_earned: Number(psRows[pi][psCol("boxes_earned")]) || 0,
         boxes_given: Number(psRows[pi][psCol("boxes_given")]) || 0,
         last_play_date: String(psRows[pi][psCol("last_play_date")] || ""),
@@ -1330,7 +1352,7 @@ function handleApi(params) {
     var field = params.field || "";
     var value = params.value || "";
     if (!regId || !field) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "missing params" })));
-    var allowed = ["slip_status", "cards_given", "note"];
+    var allowed = ["slip_status", "rewards_given", "note"];
     if (allowed.indexOf(field) < 0) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "invalid field" })));
     var tuWs = ss.getSheetByName(TAB_WAKAGYM_REG);
     if (!tuWs) return _cors(ContentService.createTextOutput(JSON.stringify({ error: "no wakagym_reg tab" })));
@@ -1402,61 +1424,36 @@ function handleApi(params) {
     var sumHdr = sumRows[0];
     var sc = function(n) { return sumHdr.indexOf(n); };
 
-    var totalPlayers = 0, cardsGiven = 0, cardsTotal = 0, accumTotal = 0;
+    var totalPlayers = 0, totalTokens = 0, totalPromo = 0, rewardsGiven = 0;
     var cashAmount = 0, transferAmount = 0;
     var bankBreakdown = {};
-    var accumulators = [];
 
     for (var si = 1; si < sumRows.length; si++) {
       if (String(sumRows[si][sc("event_date")]) !== sumDate) continue;
       totalPlayers++;
-      var ch = String(sumRows[si][sc("choice")] || "");
       var pm = String(sumRows[si][sc("payment_method")] || "transfer");
       var bk = String(sumRows[si][sc("bank")] || "ไม่ระบุ");
-      var cg = String(sumRows[si][sc("cards_given")] || "");
+      var entryFee = Number(sumRows[si][sc("note")] || 0) || 200;
 
-      if (ch === "cards") {
-        cardsTotal++;
-        if (String(cg).toLowerCase() === "true") cardsGiven++;
-      } else {
-        accumTotal++;
-        accumulators.push(String(sumRows[si][sc("player_name")] || ""));
-      }
+      totalTokens += Number(sumRows[si][sc("tokens_earned")] || 0);
+      totalPromo += Number(sumRows[si][sc("promo_packs")] || 0);
+      if (String(sumRows[si][sc("rewards_given")]).toLowerCase() === "true") rewardsGiven++;
 
       if (pm === "cash") {
-        cashAmount += 200;
+        cashAmount += entryFee;
       } else {
-        transferAmount += 200;
+        transferAmount += entryFee;
         if (!bankBreakdown[bk]) bankBreakdown[bk] = 0;
-        bankBreakdown[bk] += 200;
-      }
-    }
-
-    var statsWsSm = ss.getSheetByName(TAB_PLAYER_STATS);
-    var accumStats = [];
-    if (statsWsSm && accumulators.length > 0) {
-      var psRows = statsWsSm.getDataRange().getValues();
-      var psHdr = psRows[0];
-      var psc = function(n) { return psHdr.indexOf(n); };
-      for (var pi = 1; pi < psRows.length; pi++) {
-        var pn = String(psRows[pi][psc("player_name")] || "").trim();
-        if (accumulators.indexOf(pn) >= 0) {
-          accumStats.push({
-            player_name: pn,
-            accumulation_count: Number(psRows[pi][psc("accumulation_count")]) || 0,
-            boxes_earned: Number(psRows[pi][psc("boxes_earned")]) || 0,
-          });
-        }
+        bankBreakdown[bk] += entryFee;
       }
     }
 
     return _cors(ContentService.createTextOutput(JSON.stringify({
       date: sumDate,
       total_players: totalPlayers,
-      cards_total: cardsTotal,
-      cards_given: cardsGiven,
-      accum_total: accumTotal,
-      accum_stats: accumStats,
+      total_tokens: totalTokens,
+      total_promo: totalPromo,
+      rewards_given: rewardsGiven,
       cash_amount: cashAmount,
       transfer_amount: transferAmount,
       bank_breakdown: bankBreakdown,
@@ -1679,20 +1676,20 @@ function handleApi(params) {
     var gcCol = function(n) { return gcHdr.indexOf(n); };
     for (var gi = 1; gi < gcRows.length; gi++) {
       if (String(gcRows[gi][gcCol("reg_id")]) === gcRegId) {
-        if (String(gcRows[gi][gcCol("cards_given")]).toLowerCase() === "true") {
+        if (String(gcRows[gi][gcCol("rewards_given")]).toLowerCase() === "true") {
           return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true, already: true })));
         }
         var givenAt = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd HH:mm:ss");
-        gcWs.getRange(gi + 1, gcCol("cards_given") + 1).setValue("TRUE");
+        gcWs.getRange(gi + 1, gcCol("rewards_given") + 1).setValue("TRUE");
         if (gcCol("note") >= 0) gcWs.getRange(gi + 1, gcCol("note") + 1).setValue("แจก " + givenAt);
         var gcUid = String(gcRows[gi][gcCol("line_user_id")] || "");
         var gcName = String(gcRows[gi][gcCol("player_name")] || gcRows[gi][gcCol("real_name")] || "");
-        var gcChoice = String(gcRows[gi][gcCol("choice")] || "");
+        var gcTokens = String(gcRows[gi][gcCol("tokens_earned")] || "0");
+        var gcPromo = String(gcRows[gi][gcCol("promo_packs")] || "0");
         if (gcUid && gcUid !== "dev_user") {
-          var gcMsg = "🎴 รับการ์ดครบแล้ว!\nชื่อแข่ง: " + gcName;
-          if (gcChoice === "accumulate") {
-            gcMsg = "📦 บันทึกสะสมเรียบร้อย!\nชื่อแข่ง: " + gcName;
-          }
+          var gcMsg = "🏆 รับรางวัล WAKA GYM!\nชื่อแข่ง: " + gcName
+            + "\n🪙 Token: " + gcTokens
+            + "\n🎁 Promo Pack: " + gcPromo + " ซอง";
           _linePush(gcUid, gcMsg);
         }
         return _cors(ContentService.createTextOutput(JSON.stringify({ ok: true, already: false })));
@@ -1761,11 +1758,15 @@ function isCorrectAccount(ss, toAccount, toName) {
   if (toName) {
     var shopNameTh = _getConfigValue(cfgWs, "bank_account_name") || "";
     var shopNameEn = _getConfigValue(cfgWs, "bank_account_name_en") || "";
+    var shopNames = [];
+    shopNameTh.split(",").forEach(function(n) { n = n.trim(); if (n) shopNames.push(n.toLowerCase()); });
+    shopNameEn.split(",").forEach(function(n) { n = n.trim(); if (n) shopNames.push(n.toLowerCase()); });
     var slipName = String(toName).toLowerCase().replace(/[.\s]+/g, " ").trim();
-    if (shopNameTh || shopNameEn) {
-      var matchTh = shopNameTh && nameMatch(slipName, shopNameTh.toLowerCase().trim());
-      var matchEn = shopNameEn && nameMatch(slipName, shopNameEn.toLowerCase().trim());
-      nameOk = matchTh || matchEn || (!shopNameTh && !shopNameEn);
+    if (shopNames.length > 0) {
+      nameOk = false;
+      for (var ni = 0; ni < shopNames.length; ni++) {
+        if (nameMatch(slipName, shopNames[ni])) { nameOk = true; break; }
+      }
     }
   }
 
@@ -1773,20 +1774,24 @@ function isCorrectAccount(ss, toAccount, toName) {
 }
 
 function isPartialMatch(slipAcct, shopAcct) {
-  var slip = String(slipAcct).replace(/[-\sx]/gi, "");
-  var shop = String(shopAcct).replace(/[-\s]/g, "");
+  var slip = String(slipAcct).replace(/[-\s.]/g, "").toLowerCase();
+  var shop = String(shopAcct).replace(/[-\s.]/g, "");
   if (!slip || !shop) return true;
-  for (var i = 0; i < slip.length; i++) {
-    var pos = shop.indexOf(slip[i]);
-    if (pos >= 0) {
-      var matchCount = 0;
-      for (var j = 0; j < slip.length && (pos + j) < shop.length; j++) {
-        if (slip[i + j] === shop[pos + j]) matchCount++;
+
+  if (slip.length === shop.length) {
+    var matchCount = 0;
+    var digitCount = 0;
+    for (var i = 0; i < slip.length; i++) {
+      if (slip[i] >= "0" && slip[i] <= "9") {
+        digitCount++;
+        if (slip[i] === shop[i]) matchCount++;
       }
-      if (matchCount >= 3) return true;
     }
+    return digitCount >= 3 && matchCount === digitCount;
   }
-  return slip.length >= 3 && shop.indexOf(slip) >= 0;
+
+  var slipDigits = slip.replace(/[^0-9]/g, "");
+  return slipDigits.length >= 3 && shop.indexOf(slipDigits) >= 0;
 }
 
 function nameMatch(slipName, shopName) {
@@ -1891,6 +1896,7 @@ function verifySlipWithClaude(base64) {
           + 'รายชื่อ/คำที่พบบ่อยในระบบนี้ (ใช้เทียบเสียง/รูปร่างตัวอักษรที่ใกล้เคียงเวลาอ่านไม่ชัด):\n'
           + '- วากะ (WAKA) — ระวังสับสนกับ "วาทะ" (ก/ท คล้ายกัน)\n'
           + '- บจก. วากะ คอร์ป / WAKA CORP — ชื่อบัญชีปลายทาง\n'
+          + '- WAKA COFFEE — ชื่อบัญชี PromptPay/แม่มณี\n'
           + '- บริษัท วากะ คอร์ป จำกัด — ชื่อเต็ม\n\n'
           + 'กฎการอ่าน:\n'
           + '1. อ่านชื่อตามที่ปรากฏ ห้ามตัดคำใหม่หรือสลับลำดับ\n'
