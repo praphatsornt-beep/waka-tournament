@@ -89,6 +89,29 @@ function doGet(e) {
       });
     }
 
+    // เติม stock อัตโนมัติ ถ้ามีสินค้าใหม่ใน _catalog ที่ยังไม่มีแถวใน stock (กันลืม)
+    var stockWs = ss.getSheetByName(TAB_STOCK);
+    if (!stockWs) {
+      stockWs = ss.insertSheet(TAB_STOCK);
+      stockWs.appendRow(["name", "category", "qty_box", "qty_pack"]);
+    }
+    var stockRows = stockWs.getDataRange().getValues();
+    var stockNames = {};
+    for (var si = 1; si < stockRows.length; si++) {
+      stockNames[String(stockRows[si][0]).trim()] = true;
+    }
+    var missingStock = [];
+    for (var ci = 0; ci < catalog.length; ci++) {
+      var pname = catalog[ci].name.trim();
+      if (!stockNames[pname]) {
+        missingStock.push([catalog[ci].name, catalog[ci].category, 0, 0]);
+        stockNames[pname] = true;
+      }
+    }
+    if (missingStock.length > 0) {
+      stockWs.getRange(stockWs.getLastRow() + 1, 1, missingStock.length, 4).setValues(missingStock);
+    }
+
     var cfgRows = cfgWs ? cfgWs.getDataRange().getValues() : [];
     var config  = {};
     for (var j = 1; j < cfgRows.length; j++) {
@@ -2154,7 +2177,7 @@ function _sanitize(val) {
 function _driveUrl(url) {
   if (!url) return "";
   var m = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
-  if (m) return "https://drive.google.com/thumbnail?id=" + m[1] + "&sz=w400";
+  if (m) return "https://drive.google.com/thumbnail?id=" + m[1] + "&sz=w800";
   return url;
 }
 
