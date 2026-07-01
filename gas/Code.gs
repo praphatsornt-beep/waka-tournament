@@ -98,14 +98,14 @@ function doGet(e) {
     var stockRows = stockWs.getDataRange().getValues();
     var stockNames = {};
     for (var si = 1; si < stockRows.length; si++) {
-      stockNames[String(stockRows[si][0]).trim()] = true;
+      stockNames[String(stockRows[si][0]).trim().toLowerCase()] = true;
     }
     var missingStock = [];
     for (var ci = 0; ci < catalog.length; ci++) {
       var pname = catalog[ci].name.trim();
-      if (!stockNames[pname]) {
+      if (!stockNames[pname.toLowerCase()]) {
         missingStock.push([catalog[ci].name, catalog[ci].category, 0, 0]);
-        stockNames[pname] = true;
+        stockNames[pname.toLowerCase()] = true;
       }
     }
     if (missingStock.length > 0) {
