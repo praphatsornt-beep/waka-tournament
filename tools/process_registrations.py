@@ -26,9 +26,7 @@ load_dotenv()
 try:
     import anthropic
     import gspread
-    from google.auth.transport.requests import Request
-    from google.oauth2.credentials import Credentials
-    from google_auth_oauthlib.flow import InstalledAppFlow
+    from google.oauth2.service_account import Credentials
     from googleapiclient.discovery import build
     from googleapiclient.http import MediaIoBaseDownload
     from PIL import Image
@@ -43,8 +41,7 @@ SCOPES = [
 ]
 
 CONFIG_PATH = Path("events_config.json")
-TOKEN_PATH = Path("token.json")
-CREDENTIALS_PATH = Path("credentials.json")
+SA_PATH     = Path("service_account.json")
 TMP_DIR = Path(".tmp")
 SEEN_SLIPS_PATH = TMP_DIR / "seen_slips.json"
 
@@ -80,25 +77,7 @@ def save_seen_slips(seen: dict) -> None:
 # ── Google Auth ──────────────────────────────────────────────────────────────
 
 def get_google_credentials() -> Credentials:
-    creds = None
-    if TOKEN_PATH.exists():
-        creds = Credentials.from_authorized_user_file(str(TOKEN_PATH), SCOPES)
-
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            if not CREDENTIALS_PATH.exists():
-                print("ERROR: credentials.json not found.")
-                print("See workflows/setup_google_auth.md for setup instructions.")
-                sys.exit(1)
-            flow = InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS_PATH), SCOPES)
-            creds = flow.run_local_server(port=0)
-
-        with open(TOKEN_PATH, "w") as f:
-            f.write(creds.to_json())
-
-    return creds
+    return Credentials.from_service_account_file(str(SA_PATH), scopes=SCOPES)
 
 
 # ── Column Detection ─────────────────────────────────────────────────────────

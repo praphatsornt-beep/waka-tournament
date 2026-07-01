@@ -46,9 +46,7 @@ try:
     import gspread
     import pandas as pd
     import pdfplumber
-    from google.auth.transport.requests import Request
-    from google.oauth2.credentials import Credentials
-    from google_auth_oauthlib.flow import InstalledAppFlow
+    from google.oauth2.service_account import Credentials
 except ImportError as e:
     st.error(f"ติดตั้ง packages ก่อน: `pip install -r requirements.txt`\n\nรายละเอียด: {e}")
     st.stop()
@@ -68,11 +66,8 @@ def generate_qr_b64(data: str) -> str | None:
 
 # ── Paths & constants ─────────────────────────────────────────────────────────
 
-SCOPES           = [
-    "https://www.googleapis.com/auth/spreadsheets",
-]
-TOKEN_PATH       = Path("token.json")
-CREDS_PATH       = Path("credentials.json")
+SCOPES    = ["https://www.googleapis.com/auth/spreadsheets"]
+SA_PATH   = Path("service_account.json")
 CONFIG_PATH      = Path("events_config.json")
 CONFIG_SHEET_TAB  = "_config"
 USED_TXNS_TAB     = "_used_txns"
@@ -246,41 +241,13 @@ def parse_fees(fee_str: str) -> list[float]:
 
 @st.cache_resource
 def _get_creds() -> "Credentials":
-    """คืน raw Google Credentials — ใช้ร่วมกันทั้ง Sheets และ Forms"""
     try:
-        has_token = "GOOGLE_TOKEN" in st.secrets
+        if "GOOGLE_SERVICE_ACCOUNT" in st.secrets:
+            info = json.loads(st.secrets["GOOGLE_SERVICE_ACCOUNT"])
+            return Credentials.from_service_account_info(info, scopes=SCOPES)
     except Exception:
-        has_token = False
-    if has_token:
-        token_data = json.loads(st.secrets["GOOGLE_TOKEN"])
-        creds = Credentials(
-            token=token_data.get("token"),
-            refresh_token=token_data.get("refresh_token"),
-            token_uri=token_data.get("token_uri"),
-            client_id=token_data.get("client_id"),
-            client_secret=token_data.get("client_secret"),
-            scopes=token_data.get("scopes"),
-        )
-        if not creds.valid:
-            creds.refresh(Request())
-        return creds
-
-    creds = None
-    if TOKEN_PATH.exists():
-        creds = Credentials.from_authorized_user_file(str(TOKEN_PATH), SCOPES)
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            if not CREDS_PATH.exists():
-                raise FileNotFoundError(
-                    "ไม่พบ credentials.json — วางไฟล์ไว้ใน root folder ของโปรเจค"
-                )
-            flow  = InstalledAppFlow.from_client_secrets_file(str(CREDS_PATH), SCOPES)
-            creds = flow.run_local_server(port=0)
-        with open(TOKEN_PATH, "w") as f:
-            f.write(creds.to_json())
-    return creds
+        pass
+    return Credentials.from_service_account_file(str(SA_PATH), scopes=SCOPES)
 
 @st.cache_resource
 def get_gc():

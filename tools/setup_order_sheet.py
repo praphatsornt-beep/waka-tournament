@@ -11,8 +11,7 @@ load_dotenv()
 
 try:
     import gspread
-    from google.auth.transport.requests import Request
-    from google.oauth2.credentials import Credentials
+    from google.oauth2.service_account import Credentials
 except ImportError:
     print("ERROR: pip install gspread google-auth")
     sys.exit(1)
@@ -20,8 +19,8 @@ except ImportError:
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1aUHbSt3qlQ4uMIzlCGbF-iFm0AqSeqx12nxk5ny1JoY/edit"
 SHEET_ID  = "1aUHbSt3qlQ4uMIzlCGbF-iFm0AqSeqx12nxk5ny1JoY"
 
-SCOPES     = ["https://www.googleapis.com/auth/spreadsheets"]
-TOKEN_PATH = Path("token.json")
+SCOPES  = ["https://www.googleapis.com/auth/spreadsheets"]
+SA_PATH = Path("service_account.json")
 
 BRANCHES = ["tonsak", "muangthong", "srinakarin"]
 
@@ -57,15 +56,7 @@ TABS = {
 
 
 def get_gc():
-    creds = None
-    if TOKEN_PATH.exists():
-        creds = Credentials.from_authorized_user_file(str(TOKEN_PATH), SCOPES)
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            print("ERROR: ไม่พบ token.json")
-            sys.exit(1)
+    creds = Credentials.from_service_account_file(str(SA_PATH), scopes=SCOPES)
     return gspread.authorize(creds)
 
 

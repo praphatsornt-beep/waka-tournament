@@ -10,7 +10,6 @@ const SHEET_ID   = PROPS.getProperty("SHEET_ID");
 const TAB_ORDERS  = "orders";
 const TAB_CATALOG = "_catalog";
 const TAB_CONFIG  = "_config";
-const TAB_STOCK   = "stock";
 const TAB_STOCK_BRANCH = "stock_branch";
 const TAB_SHIPMENTS    = "shipments";
 const TAB_WAKAGYM_REG = "wakagym_reg";
@@ -66,15 +65,17 @@ function doGet(e) {
     var catRows = catWs ? catWs.getDataRange().getValues() : [];
     var catalog = [];
     for (var i = 1; i < catRows.length; i++) {
-      var name = catRows[i][0], category = catRows[i][1], price_box = catRows[i][2];
-      var price_pack = catRows[i][3], active = catRows[i][4], image_url = catRows[i][5];
+      var name = catRows[i][0], category = catRows[i][1], price_box = catRows[i][5];
+      var price_pack = catRows[i][6], active = catRows[i][11], image_url = catRows[i][12];
       if (!name) continue;
       if (active === false || active === "FALSE" || active === 0) continue;
-      var slug = catRows[i][8] || "";
+      var slug = catRows[i][2] || "";
       var limit_box  = catRows[i][9];
       var limit_pack = catRows[i][10];
-      var barcode    = catRows[i][11] || "";
-      var notice     = catRows[i][12] || "";
+      var barcode    = catRows[i][13] || "";
+      var notice     = catRows[i][14] || "";
+      var qty_box    = catRows[i][7];
+      var qty_pack   = catRows[i][8];
       catalog.push({
         name:       String(name),
         category:   String(category || ""),
@@ -86,30 +87,9 @@ function doGet(e) {
         limit_pack: (limit_pack === "" || limit_pack === undefined || limit_pack === null) ? -1 : Number(limit_pack),
         barcode:    String(barcode),
         notice:     String(notice),
+        qty_box:    Number(qty_box)  || 0,
+        qty_pack:   Number(qty_pack) || 0,
       });
-    }
-
-    // เติม stock อัตโนมัติ ถ้ามีสินค้าใหม่ใน _catalog ที่ยังไม่มีแถวใน stock (กันลืม)
-    var stockWs = ss.getSheetByName(TAB_STOCK);
-    if (!stockWs) {
-      stockWs = ss.insertSheet(TAB_STOCK);
-      stockWs.appendRow(["name", "category", "qty_box", "qty_pack"]);
-    }
-    var stockRows = stockWs.getDataRange().getValues();
-    var stockNames = {};
-    for (var si = 1; si < stockRows.length; si++) {
-      stockNames[String(stockRows[si][0]).trim().toLowerCase()] = true;
-    }
-    var missingStock = [];
-    for (var ci = 0; ci < catalog.length; ci++) {
-      var pname = catalog[ci].name.trim();
-      if (!stockNames[pname.toLowerCase()]) {
-        missingStock.push([catalog[ci].name, catalog[ci].category, 0, 0]);
-        stockNames[pname.toLowerCase()] = true;
-      }
-    }
-    if (missingStock.length > 0) {
-      stockWs.getRange(stockWs.getLastRow() + 1, 1, missingStock.length, 4).setValues(missingStock);
     }
 
     var cfgRows = cfgWs ? cfgWs.getDataRange().getValues() : [];
@@ -461,7 +441,7 @@ function deductCatalogLimits(ss, items) {
 }
 
 function deductStock(ss, items) {
-  var ws = ss.getSheetByName(TAB_STOCK);
+  var ws = ss.getSheetByName(TAB_CATALOG);
   if (!ws) return;
 
   var range = ws.getDataRange();
@@ -472,9 +452,9 @@ function deductStock(ss, items) {
     for (var r = 1; r < rows.length; r++) {
       if (String(rows[r][0]).trim() !== String(item.name).trim()) continue;
       if (item.type === "box") {
-        rows[r][2] = Math.max(0, (Number(rows[r][2]) || 0) - (item.qty || 1));
+        rows[r][7] = Math.max(0, (Number(rows[r][7]) || 0) - (item.qty || 1));
       } else {
-        rows[r][3] = Math.max(0, (Number(rows[r][3]) || 0) - (item.qty || 1));
+        rows[r][8] = Math.max(0, (Number(rows[r][8]) || 0) - (item.qty || 1));
       }
       changed = true;
       break;
@@ -1023,13 +1003,13 @@ function handleApi(params) {
 
   // ── สต็อกกลาง ──
   if (action === "central_stock") {
-    var stockWs = ss.getSheetByName(TAB_STOCK);
-    if (!stockWs) return _cors(ContentService.createTextOutput(JSON.stringify({ stock: [] })));
-    var sRows = stockWs.getDataRange().getValues();
+    var csWs = ss.getSheetByName(TAB_CATALOG);
+    if (!csWs) return _cors(ContentService.createTextOutput(JSON.stringify({ stock: [] })));
+    var sRows = csWs.getDataRange().getValues();
     var stock = [];
     for (var i = 1; i < sRows.length; i++) {
       if (!sRows[i][0]) continue;
-      stock.push({ name: String(sRows[i][0]), category: String(sRows[i][1] || ""), qty_box: Number(sRows[i][2]) || 0, qty_pack: Number(sRows[i][3]) || 0 });
+      stock.push({ name: String(sRows[i][0]), category: String(sRows[i][1] || ""), qty_box: Number(sRows[i][7]) || 0, qty_pack: Number(sRows[i][8]) || 0 });
     }
     return _cors(ContentService.createTextOutput(JSON.stringify({ stock: stock })));
   }
@@ -1082,10 +1062,10 @@ function handleApi(params) {
       for (var ci = 1; ci < catRows.length; ci++) {
         if (!catRows[ci][0]) continue;
         costMap[String(catRows[ci][0])] = {
-          cost_box: Number(catRows[ci][6]) || 0,
-          cost_pack: Number(catRows[ci][7]) || 0,
-          price_box: Number(catRows[ci][2]) || 0,
-          price_pack: Number(catRows[ci][3]) || 0,
+          cost_box: Number(catRows[ci][3]) || 0,
+          cost_pack: Number(catRows[ci][4]) || 0,
+          price_box: Number(catRows[ci][5]) || 0,
+          price_pack: Number(catRows[ci][6]) || 0,
         };
       }
     }
@@ -1154,22 +1134,14 @@ function handleApi(params) {
     if (!catWs) return _cors(ContentService.createTextOutput(JSON.stringify({ found: false })));
     var catRows = catWs.getDataRange().getValues();
     for (var i = 1; i < catRows.length; i++) {
-      if (String(catRows[i][11] || "").trim() === barcode) {
-        var stockWs = ss.getSheetByName(TAB_STOCK);
-        var sBox = 0, sPack = 0;
-        if (stockWs) {
-          var sRows = stockWs.getDataRange().getValues();
-          for (var s = 1; s < sRows.length; s++) {
-            if (String(sRows[s][0]).trim() === String(catRows[i][0]).trim()) { sBox = Number(sRows[s][2]) || 0; sPack = Number(sRows[s][3]) || 0; break; }
-          }
-        }
+      if (String(catRows[i][13] || "").trim() === barcode) {
         return _cors(ContentService.createTextOutput(JSON.stringify({
           found: true,
           product: {
             name: String(catRows[i][0]), category: String(catRows[i][1] || ""),
-            price_box: Number(catRows[i][2]) || 0, price_pack: Number(catRows[i][3]) || 0,
-            cost_box: Number(catRows[i][6]) || 0, cost_pack: Number(catRows[i][7]) || 0,
-            barcode: barcode, stock_box: sBox, stock_pack: sPack,
+            price_box: Number(catRows[i][5]) || 0, price_pack: Number(catRows[i][6]) || 0,
+            cost_box: Number(catRows[i][3]) || 0, cost_pack: Number(catRows[i][4]) || 0,
+            barcode: barcode, stock_box: Number(catRows[i][7]) || 0, stock_pack: Number(catRows[i][8]) || 0,
           }
         })));
       }
@@ -1182,27 +1154,18 @@ function handleApi(params) {
     var catWs = ss.getSheetByName(TAB_CATALOG);
     if (!catWs) return _cors(ContentService.createTextOutput(JSON.stringify({ products: [] })));
     var catRows = catWs.getDataRange().getValues();
-    var stockWs = ss.getSheetByName(TAB_STOCK);
-    var stockMap = {};
-    if (stockWs) {
-      var sRows = stockWs.getDataRange().getValues();
-      for (var s = 1; s < sRows.length; s++) {
-        if (sRows[s][0]) stockMap[String(sRows[s][0]).trim()] = { qty_box: Number(sRows[s][2]) || 0, qty_pack: Number(sRows[s][3]) || 0 };
-      }
-    }
     var products = [];
     for (var i = 1; i < catRows.length; i++) {
       if (!catRows[i][0]) continue;
       var n = String(catRows[i][0]).trim();
-      var st = stockMap[n] || { qty_box: 0, qty_pack: 0 };
       products.push({
         name: n, category: String(catRows[i][1] || ""),
-        price_box: Number(catRows[i][2]) || 0, price_pack: Number(catRows[i][3]) || 0,
-        cost_box: Number(catRows[i][6]) || 0, cost_pack: Number(catRows[i][7]) || 0,
-        barcode: String(catRows[i][11] || ""),
+        price_box: Number(catRows[i][5]) || 0, price_pack: Number(catRows[i][6]) || 0,
+        cost_box: Number(catRows[i][3]) || 0, cost_pack: Number(catRows[i][4]) || 0,
+        barcode: String(catRows[i][13] || ""),
         limit_box: (catRows[i][9] === "" || catRows[i][9] === undefined || catRows[i][9] === null) ? -1 : Number(catRows[i][9]),
         limit_pack: (catRows[i][10] === "" || catRows[i][10] === undefined || catRows[i][10] === null) ? -1 : Number(catRows[i][10]),
-        stock_box: st.qty_box, stock_pack: st.qty_pack,
+        stock_box: Number(catRows[i][7]) || 0, stock_pack: Number(catRows[i][8]) || 0,
       });
     }
     return _cors(ContentService.createTextOutput(JSON.stringify({ products: products })));
@@ -1972,9 +1935,9 @@ function handleCreateShipment(data) {
 
     var items = data.items || [];
     // ตัดสต็อกกลาง
-    var stockWs = ss.getSheetByName(TAB_STOCK);
-    if (stockWs) {
-      var sRows = stockWs.getDataRange().getValues();
+    var shCatWs = ss.getSheetByName(TAB_CATALOG);
+    if (shCatWs) {
+      var sRows = shCatWs.getDataRange().getValues();
       for (var idx = 0; idx < items.length; idx++) {
         var it = items[idx];
         var totalBox = (it.qty_box || 0) + (it.qty_box_extra || 0);
@@ -1982,12 +1945,12 @@ function handleCreateShipment(data) {
         for (var r = 1; r < sRows.length; r++) {
           if (String(sRows[r][0]).trim() !== String(it.name).trim()) continue;
           if (totalBox > 0) {
-            var curBox = Number(sRows[r][2]) || 0;
-            stockWs.getRange(r + 1, 3).setValue(Math.max(0, curBox - totalBox));
+            var curBox = Number(sRows[r][7]) || 0;
+            shCatWs.getRange(r + 1, 8).setValue(Math.max(0, curBox - totalBox));
           }
           if (totalPack > 0) {
-            var curPack = Number(sRows[r][3]) || 0;
-            stockWs.getRange(r + 1, 4).setValue(Math.max(0, curPack - totalPack));
+            var curPack = Number(sRows[r][8]) || 0;
+            shCatWs.getRange(r + 1, 9).setValue(Math.max(0, curPack - totalPack));
           }
           break;
         }
@@ -2229,23 +2192,20 @@ function handleAddStock(data) {
   lock.waitLock(10000);
   try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
-    var ws = ss.getSheetByName(TAB_STOCK);
-    if (!ws) {
-      ws = ss.insertSheet(TAB_STOCK);
-      ws.appendRow(["name", "category", "qty_box", "qty_pack"]);
-    }
+    var ws = ss.getSheetByName(TAB_CATALOG);
+    if (!ws) { lock.releaseLock(); return _cors(ContentService.createTextOutput(JSON.stringify({ error: "no _catalog tab" }))); }
     var rows = ws.getDataRange().getValues();
     var found = false;
     for (var r = 1; r < rows.length; r++) {
       if (String(rows[r][0]).trim() === String(data.name).trim()) {
-        if (data.add_box) ws.getRange(r + 1, 3).setValue((Number(rows[r][2]) || 0) + Number(data.add_box));
-        if (data.add_pack) ws.getRange(r + 1, 4).setValue((Number(rows[r][3]) || 0) + Number(data.add_pack));
+        if (data.add_box) ws.getRange(r + 1, 8).setValue((Number(rows[r][7]) || 0) + Number(data.add_box));
+        if (data.add_pack) ws.getRange(r + 1, 9).setValue((Number(rows[r][8]) || 0) + Number(data.add_pack));
         found = true;
         break;
       }
     }
     if (!found) {
-      ws.appendRow([data.name, data.category || "", Number(data.add_box) || 0, Number(data.add_pack) || 0]);
+      return _cors(ContentService.createTextOutput(JSON.stringify({ error: "ไม่พบสินค้าใน _catalog: " + data.name })));
     }
 
     // อัปเดต limit ใน _catalog ถ้าส่งมา
@@ -2291,23 +2251,17 @@ function handleAddProduct(data) {
       }
     }
 
-    // เพิ่มใน _catalog: A=name, B=category, C=price_box, D=price_pack, E=active, F=image_url, G=cost_box, H=cost_pack, I=slug, J=limit_box, K=limit_pack, L=barcode
+    // เพิ่มใน _catalog: A=name, B=category, C=slug, D=cost_box, E=cost_pack, F=price_box, G=price_pack, H=qty_box, I=qty_pack, J=limit_box, K=limit_pack, L=active, M=image_url, N=barcode, O=notice
     var limBox = (data.limit_box === "" || data.limit_box === undefined || data.limit_box === null) ? "" : Number(data.limit_box);
     var limPack = (data.limit_pack === "" || data.limit_pack === undefined || data.limit_pack === null) ? "" : Number(data.limit_pack);
     var newRow = [
-      data.name, data.category || "", Number(data.price_box) || 0, Number(data.price_pack) || 0,
-      "TRUE", "", Number(data.cost_box) || 0, Number(data.cost_pack) || 0,
-      "", limBox, limPack, data.barcode || ""
+      data.name, data.category || "", "",
+      Number(data.cost_box) || 0, Number(data.cost_pack) || 0,
+      Number(data.price_box) || 0, Number(data.price_pack) || 0,
+      Number(data.initial_box) || 0, Number(data.initial_pack) || 0,
+      limBox, limPack, "TRUE", "", data.barcode || "", ""
     ];
     catWs.appendRow(newRow);
-
-    // เพิ่มใน stock
-    var stockWs = ss.getSheetByName(TAB_STOCK);
-    if (!stockWs) {
-      stockWs = ss.insertSheet(TAB_STOCK);
-      stockWs.appendRow(["name", "category", "qty_box", "qty_pack"]);
-    }
-    stockWs.appendRow([data.name, data.category || "", Number(data.initial_box) || 0, Number(data.initial_pack) || 0]);
 
     CacheService.getScriptCache().remove("catalog_config");
     lock.releaseLock();
