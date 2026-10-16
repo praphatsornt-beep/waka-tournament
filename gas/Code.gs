@@ -1387,9 +1387,24 @@ function installCleanupTrigger() {
 //
 // ติดตั้ง trigger ด้วย installSlipVerificationTrigger() (รันมือครั้งเดียว)
 function processPendingSlipVerifications() {
-  // กัน trigger 2 รอบทับซ้อนกันประมวลผลออเดอร์เดียวกัน (เช่นรอบก่อนยังไม่จบ)
-  var lock = LockService.getScriptLock();
-  if (!lock.tryLock(0)) return;
+  // กัน trigger 2 รอบทับซ้อนกันประมวลผลออเดอร์เดียวกัน (เช่นรอบก่อนยังไม่จบ) —
+  // เดิมใช้ LockService.getScriptLock() ตัวเดียวกับที่ทุก action เขียนข้อมูลอื่น
+  // ในระบบใช้ (สร้างล็อตส่งสาขา/เบิกสต็อก/ยืนยันสลิป/ส่งมอบออเดอร์ ฯลฯ) ทำให้
+  // ระหว่างที่ trigger นี้กำลังเรียก SlipOK/Claude vision (รอได้หลายวินาทีต่อ
+  // ออเดอร์ สูงสุด 5 ออเดอร์/รอบ) action อื่นทุกตัวในระบบต้องรอคิว lock เดียวกัน
+  // ไปด้วย ถ้ารอบนั้นช้า (Claude ตอบช้า/มีหลายออเดอร์ค้างพร้อมกัน) action อื่นที่
+  // waitLock(10-15วิ) จะ timeout เอง — เจอจริงตอนพนักงานกด "สร้างล็อตส่งสาขา"
+  // พร้อมๆ กับที่ trigger นี้กำลังตรวจสลิปอยู่ ได้ error "Lock timeout: another
+  // process was holding the lock for too long" ทั้งที่ไม่ได้เกี่ยวกับล็อตเลย —
+  // เปลี่ยนมาใช้ cache flag แยกต่างหากแทน กันแค่ trigger รอบนี้ไม่ให้ทับซ้อนกับ
+  // รอบก่อนของตัวเอง ไม่ไปแย่ง lock กับ action อื่นที่ไม่เกี่ยวข้องกันเลย
+  var cache = CacheService.getScriptCache();
+  var runningKey = "slip_verification_running";
+  if (cache.get(runningKey)) return; // รอบก่อนยังไม่จบ ข้ามรอบนี้ไปก่อน
+  // TTL สั้นกว่าเวลา execution สูงสุดที่ Apps Script อนุญาต (6 นาที) พอประมาณ —
+  // กันเคส flag ค้างถาวรถ้า execution ก่อนหน้าตายกลางคันโดยไม่ผ่าน finally (เช่น
+  // ถูก Apps Script เตะเพราะเกิน quota) ไม่งั้น trigger จะไม่ทำงานอีกเลยตลอดกาล
+  cache.put(runningKey, "1", 120);
 
   try {
     // batch จำกัด 5 ออเดอร์/รอบ กัน trigger รันเกินเวลาที่ Apps Script อนุญาต —
@@ -1512,7 +1527,7 @@ function processPendingSlipVerifications() {
       }
     });
   } finally {
-    lock.releaseLock();
+    cache.remove(runningKey);
   }
 }
 
