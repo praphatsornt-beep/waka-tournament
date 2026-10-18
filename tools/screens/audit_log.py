@@ -158,7 +158,7 @@ else:
                             "_action": "cancelWithdrawStock", "action_id": wd_opts[sel_label],
                             "code": ADMIN_CODE, "staff_name": admin_name(),
                         }
-                        resp = requests.post(f"{GAS_URL}?_s={WAKA_S}", json=payload, timeout=30)
+                        resp = requests.post(f"{GAS_URL}?_s={WAKA_S}", json=payload, timeout=60)
                         res = resp.json()
                         if res.get("error"):
                             st.error(res["error"])

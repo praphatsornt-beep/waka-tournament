@@ -183,7 +183,7 @@ def _gas_request(payload: dict) -> dict:
     last_err = None
     for attempt in range(2):
         try:
-            resp = requests.post(f"{GAS_URL}?_s={WAKA_S}", json=payload, timeout=30)
+            resp = requests.post(f"{GAS_URL}?_s={WAKA_S}", json=payload, timeout=60)
             return resp.json()
         except (ValueError, requests.RequestException) as e:
             last_err = e

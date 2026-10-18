@@ -25,7 +25,7 @@ BRANCHES = ["ต้นสักคอร์เนอร์", "เมืองท
 
 def gas_post(payload: dict) -> dict:
     payload = {**payload, "code": ADMIN_CODE, "staff_name": admin_name()}
-    resp = requests.post(f"{GAS_URL}?_s={WAKA_S}", json=payload, timeout=30)
+    resp = requests.post(f"{GAS_URL}?_s={WAKA_S}", json=payload, timeout=60)
     result = resp.json()
     if result.get("error"):
         raise Exception(result["error"])

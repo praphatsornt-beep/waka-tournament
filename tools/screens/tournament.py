@@ -34,7 +34,7 @@ def gas_get(do: str, **params) -> dict:
 
 
 def gas_post(payload: dict) -> dict:
-    resp = requests.post(f"{GAS_URL}?_s={WAKA_S}", json=payload, timeout=30)
+    resp = requests.post(f"{GAS_URL}?_s={WAKA_S}", json=payload, timeout=60)
     result = resp.json()
     if not result.get("ok"):
         raise Exception(result.get("error", "GAS ตอบผิดพลาด"))

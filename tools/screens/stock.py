@@ -48,7 +48,17 @@ def get_supabase():
 
 def gas_post(payload: dict) -> dict:
     payload = {**payload, "code": ADMIN_CODE, "staff_name": admin_name()}
-    resp = requests.post(f"{GAS_URL}?_s={WAKA_S}", json=payload, timeout=30)
+    try:
+        resp = requests.post(f"{GAS_URL}?_s={WAKA_S}", json=payload, timeout=60)
+    except requests.exceptions.Timeout:
+        # GAS ประมวลผลเสร็จจริงได้แม้ไม่ตอบกลับทัน 60 วิ (หลายขั้นตอน + ยิง
+        # แจ้งเตือน LINE/Telegram ต่อท้าย) — เจอเคสจริง 2026-10-18 ที่โอนสต็อก
+        # สำเร็จ (กลุ่มไลน์ได้รับแจ้งแล้ว) แต่ Streamlit timeout ก่อนเห็นผล ทำให้
+        # พนักงานเข้าใจผิดว่าทำไม่สำเร็จแล้วอาจกดซ้ำ (เสี่ยงโอน/เบิกซ้ำสอง) —
+        # บอกให้ชัดว่าไม่แน่ใจผล อย่าเพิ่งกดซ้ำ ให้เช็คก่อน
+        raise Exception("เซิร์ฟเวอร์ตอบช้าเกิน 60 วิ — ไม่แน่ใจว่าทำสำเร็จหรือไม่ "
+                         "กรุณาเช็คในกลุ่มไลน์แจ้งเตือน/รีเฟรชหน้าดูตัวเลขก่อน "
+                         "อย่าเพิ่งกดทำรายการนี้ซ้ำ")
     result = resp.json()
     if result.get("error"):
         raise Exception(result["error"])
