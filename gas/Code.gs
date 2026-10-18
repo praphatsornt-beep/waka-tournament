@@ -3146,11 +3146,19 @@ function handleHandoverOrder(data) {
       return _cors(ContentService.createTextOutput(JSON.stringify({ error: "ไม่มีสินค้าที่พร้อมส่งมอบ" })));
     }
 
-    // ตัดสต็อกสาขาเฉพาะ itemsToHandover (Supabase-primary)
+    // ตัดสต็อกสาขาเฉพาะ itemsToHandover (Supabase-primary) — ยกเว้น item ที่มี
+    // _branch_source: true ซึ่งถูกหักออกจากสต็อกสาขาไปแล้วตั้งแต่ตอนสั่งซื้อ
+    // (deductBranchStock_ ใน doPost — เกิดเมื่อสต็อกสาขาตอนนั้นพอส่งมอบทันที
+    // อยู่แล้ว ระบบเลยหักจองไว้เลยไม่รอ shipment) ถ้ามาหักซ้ำอีกทีตรงนี้ตอนส่งมอบ
+    // จริง สต็อกสาขาจะหายไปเกินจริงเท่าตัวสำหรับ item กลุ่มนี้ — เจอบั๊กจริง
+    // 2026-10-18 (ออเดอร์ #261002001 ที่สาขาต้นสักคอร์เนอร์ หักซ้ำ 2 กล่อง พบอีก
+    // 3 ออเดอร์ที่โดนแบบเดียวกันตอนสแกนย้อนหลัง) restoreStock() ก็แยกคืนตาม
+    // _branch_source อยู่แล้วเวลายกเลิก ที่นี่ควรสมมาตรกัน
     var hoRows = _fetchStockBranchRows_(branch);
     var hoRowsToWrite = [];
     for (var idx = 0; idx < itemsToHandover.length; idx++) {
       var it = itemsToHandover[idx];
+      if (it._branch_source) continue;
       var hoRow = _findStockBranchRow_(hoRows, it.name, branch);
       if (!hoRow) continue;
       var hoField = it.type === "box" ? "qty_box" : "qty_pack";
